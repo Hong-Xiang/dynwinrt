@@ -1,7 +1,11 @@
 use core::ffi::c_void;
-use windows_core::{HRESULT, HSTRING};
+use libffi::middle::{Arg, Cif, arg};
+use windows_core::HRESULT;
 
-use crate::value;
+use crate::{
+    signature::Parameter,
+    value::{OutValue, WinRTValue},
+};
 
 pub fn get_vtable_function_ptr(obj: *mut c_void, method_index: usize) -> *mut c_void {
     unsafe {
@@ -38,24 +42,43 @@ pub fn call_winrt_method_2<T1, T2>(
     }
 }
 
-// pub fn call_method_dynamic(
-//     vtable_index: usize,
-//     obj: *const c_void,
-//     args: &mut [&mut value::Argument],
-// ) -> HRESULT {
-//     use value::Argument;
-//     match args {
-//         [
-//             Argument {
-//                 is_out: true,
-//                 val: value::WinRTValue::HString(_),
-//             },
-//         ] => {
-//             let hstr = HSTRING::new();
-//             let hr = call_winrt_method_1(vtable_index, obj.cast_mut(), std::ptr::from_ref(&hstr));
-//             args[0].val = value::WinRTValue::HString(hstr);
-//             hr
-//         }
-//         _ => unimplemented!(),
-//     }
-// }
+pub fn call_winrt_method_dynamic(
+    vtable_index: usize,
+    obj: *mut c_void,
+    parameters: &[Parameter],
+    args: &[WinRTValue],
+    out_count: usize,
+    cif: &libffi::middle::Cif,
+) -> windows_core::Result<Vec<WinRTValue>> {
+    use libffi::middle::CodePtr;
+    let fptr = get_vtable_function_ptr(obj, vtable_index);
+    let mut ffi_args: Vec<Arg> = Vec::with_capacity(parameters.len() + 1);
+    let mut out_values: Vec<OutValue> = Vec::with_capacity(out_count);
+    let mut out_ptrs: Vec<*const std::ffi::c_void> = Vec::with_capacity(out_count);
+
+    ffi_args.push(arg(&obj));
+
+    for p in parameters {
+        if p.is_out {
+            out_values.push(p.typ.new_out_value());
+            out_ptrs.push(out_values.last().unwrap().out_ptr());
+        }
+    }
+    for p in parameters {
+        if p.is_out {
+            ffi_args.push(arg(&out_ptrs[p.value_index]));
+        } else {
+            ffi_args.push(args[p.value_index].libffi_arg());
+        }
+    }
+    let hr: windows_core::HRESULT = unsafe { cif.call(CodePtr(fptr), &ffi_args) };
+    hr.ok()?;
+    let mut result_values: Vec<WinRTValue> = Vec::with_capacity(out_count);
+    for p in parameters {
+        if p.is_out {
+            let out_value = p.typ.from_out_value(&out_values[p.value_index]);
+            result_values.push(out_value);
+        }
+    }
+    Ok(result_values)
+}
