@@ -1,4 +1,5 @@
 use libffi::middle::Cif;
+use windows_core::HSTRING;
 
 use crate::{call, types::WinRTType, value::WinRTValue};
 
@@ -99,13 +100,17 @@ impl Method {
 }
 
 #[derive(Debug)]
-pub struct VTableSignature {
+pub struct InterfaceSignature {
+    pub name: String,
+    pub iid: windows_core::GUID,
     pub methods: Vec<Method>,
 }
 
-impl VTableSignature {
-    pub fn new() -> Self {
-        VTableSignature {
+impl InterfaceSignature {
+    pub fn new(name: String, iid: windows_core::GUID) -> Self {
+        InterfaceSignature {
+            name,
+            iid,
             methods: Vec::new(),
         }
     }
@@ -115,4 +120,10 @@ impl VTableSignature {
         self.methods.push(method);
         self
     }
+}
+
+pub struct RuntimeClassSignature {
+    name: HSTRING,
+    static_interfaces: Vec<InterfaceSignature>,
+    instance_interfaces: Vec<InterfaceSignature>,
 }

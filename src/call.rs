@@ -75,7 +75,7 @@ pub fn call_winrt_method_dynamic(
     for p in parameters {
         if p.is_out {
             out_values.push(p.typ.abi_type().default_value());
-            out_ptrs.push(out_values.last().unwrap().out_ptr());
+            out_ptrs.push(out_values.last().unwrap().as_out_ptr());
         }
     }
     for p in parameters {

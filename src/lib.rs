@@ -2,18 +2,26 @@ use windows::Foundation::IStringable_Impl;
 use windows::{Data::Xml::Dom::*, core::*};
 use windows_future::IAsyncOperation;
 
+mod result;
 mod call;
 mod interfaces;
+mod roapi;
 mod signature;
 mod types;
 mod value;
+mod winapp;
+
+mod bindings;
+mod dasync;
+
+
 
 pub fn export_add(x: f64, y: &f64) -> f64 {
     println!("export_add called with x = {}, y = {}", x, y);
     return x + y;
 }
 
-pub use crate::signature::{MethodSignature, VTableSignature};
+pub use crate::signature::{MethodSignature, InterfaceSignature};
 pub use crate::types::WinRTType;
 pub use interfaces::uri_vtable;
 
@@ -185,7 +193,7 @@ mod tests {
         let args = vec![Type::f64(), Type::pointer()];
         let cif = Cif::new(args.into_iter(), Type::f64());
 
-        let n = unsafe { cif.call(CodePtr(add as *mut _), &[arg(&5f64), arg(&&6f64)]) };
+        let n : f64 = unsafe { cif.call(CodePtr(add as *mut _), &[arg(&5f64), arg(&&6f64)]) };
         assert_eq!(11f64, n);
     }
 
@@ -265,5 +273,25 @@ mod tests {
                 method.signature(&[]).return_type
             );
         }
+    }
+}
+
+mod from_api_test {
+    use windows::{Win32::System::Com::IUri, core::*};
+    link!("urlmon.dll" "system" fn CreateUri(
+    uri: PCWSTR, 
+    flags: u32, 
+    reserved: usize, 
+    result: *mut *mut core::ffi::c_void) -> HRESULT);
+    fn main() -> Result<()> {
+        unsafe {
+            let mut uri = core::mem::zeroed();
+            let uri: IUri = CreateUri(w!("http://kennykerr.ca"), 0, 0, &mut uri)
+                .and_then(|| Type::from_abi(uri))?;
+            let domain = uri.GetDomain()?;
+            let port = uri.GetPort()?;
+            println!("{:?} ({port})", domain);
+        }
+        Ok(())
     }
 }
