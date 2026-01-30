@@ -48,6 +48,44 @@ pub fn uri_vtable() -> InterfaceSignature {
     vtable
 }
 
+pub fn IAsyncOperationWithProgress() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::new(
+        "Windows.Foundation.IAsyncOperationWithProgress".to_string(),
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new()) // 0 QueryInterface
+        .add_method(MethodSignature::new()) // 1 AddRef
+        .add_method(MethodSignature::new()) // 2 Release
+        .add_method(MethodSignature::new()) // 3 GetIids
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
+        .add_method(MethodSignature::new()) // 5 GetTrustLevel
+        .add_method(MethodSignature::new()) // 6 SetProgress
+        .add_method(MethodSignature::new()) // 7 GetProgress
+        .add_method(MethodSignature::new()) // 8 SetCompleted
+        .add_method(MethodSignature::new()) // 9 GetCompleted
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)); // 10 GetResults
+    vtable
+}
+
+pub fn IAsyncOperation() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::new(
+        "Windows.Foundation.IAsyncOperation".to_string(),
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new()) // 0 QueryInterface
+        .add_method(MethodSignature::new()) // 1 AddRef
+        .add_method(MethodSignature::new()) // 2 Release
+        .add_method(MethodSignature::new()) // 3 GetIids
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
+        .add_method(MethodSignature::new()) // 5 GetTrustLevel
+        .add_method(MethodSignature::new()) // 6 SetCompleted
+        .add_method(MethodSignature::new()) // 7 GetCompleted
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)); // 8 GetResults
+    vtable
+}
+
 pub fn FileOpenPickerFactory() -> InterfaceSignature {
     let mut vtable = InterfaceSignature::new(
         "Windows.Storage.Pickers.IFileOpenPickerFactory".to_string(),
@@ -65,6 +103,22 @@ pub fn FileOpenPickerFactory() -> InterfaceSignature {
                 .add(WinRTType::I64)
                 .add_out(WinRTType::Object),
         ); // 6 CreateWithMode
+    vtable
+}
+
+pub fn PickFileResult() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::new(
+        "Windows.Storage.Pickers.PickFileResult".to_string(),
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new()) // 0 QueryInterface
+        .add_method(MethodSignature::new()) // 1 AddRef
+        .add_method(MethodSignature::new()) // 2 Release
+        .add_method(MethodSignature::new()) // 3 GetIids
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
+        .add_method(MethodSignature::new()) // 5 GetTrustLevel
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)); // 6 get_File
     vtable
 }
 
@@ -87,6 +141,6 @@ pub fn FileOpenPicker() -> InterfaceSignature {
         .add_method(MethodSignature::new().add(WinRTType::HString)) // 10 put_CommitButtonText
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 11 get_CommitButtonText
         .add_method(MethodSignature::new().add_out(WinRTType::Object)) // 12 get_FileTypeFilter
-        .add_method(MethodSignature::new().add_out(WinRTType::Object));  // 13 PickSingleFileAsync
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)); // 13 PickSingleFileAsync
     vtable
 }

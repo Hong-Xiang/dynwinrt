@@ -12,6 +12,7 @@ pub enum WinRTType {
     Pointer,
 }
 
+
 impl WinRTType {
     pub fn abi_type(&self) -> AbiType {
         match self {

@@ -110,7 +110,7 @@ mod IID {
 mod tests {
     use windows::Web::Http::HttpClient;
     use windows_core::{GUID, IInspectable, Interface};
-    use windows_future::IAsyncOperation;
+    use windows_future::{IAsyncInfo, IAsyncOperation};
 
     use crate::{bindings, interfaces};
 
@@ -149,8 +149,15 @@ mod tests {
 
     struct IAsyncOperationFilePickResultWrapper(IUnknown);
 
-    #[test]
-    fn test_pick_open_picker() -> windows_core::Result<()> {
+    #[tokio::test]
+    async fn test_http_get_string() -> windows_core::Result<()> {
+        let s = crate::http_get_string("https://www.microsoft.com").await?;
+        println!("HTTP GET result: {}", s);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pick_open_picker() -> windows_core::Result<()> {
         let options = WinAppSdkBootstrapOptions {
             major_version: 1,
             minor_version: 8,
@@ -193,10 +200,23 @@ mod tests {
         )?;
         let rv2 = &result[0].as_object().unwrap();
 
-        let asv: IAsyncOperation<bindings::PickFileResult> = rv2.cast().unwrap();
-        asv.await;
-        let rr = asv.join()?;
-        println!("Picked file: {:?}", rr.Path());
+        // let asv: IAsyncOperation<bindings::PickFileResult> = rv2.cast().unwrap();
+        // let rr = asv.join()?;
+        let rva: IAsyncInfo = rv2.cast().unwrap();
+        let iid = IAsyncOperation::<bindings::PickFileResult>::IID;
+        let op = crate::dasync::DynWinRTAsyncOperationIUnknown(rva, iid);
+        let res = op.await?;
+        println!("Picked file result: {:?}", res);
+        let pfrvtbl = interfaces::PickFileResult();
+        let path_results = pfrvtbl.methods[6].call_dynamic(res.as_raw(), &[])?;
+        let path = path_results[0].as_hstring().unwrap();
+        // let mut ptr = std::ptr::null_mut();
+        // unsafe { res.query(&bindings::PickFileResult::IID, &mut ptr) }.unwrap();
+        // // let r: bindings::PickFileResult = unsafe { bindings::PickFileResult::from_raw(ptr as _) };
+        // let r: bindings::PickFileResult = res.cast()?;
+        // assert_eq!(r.as_raw(), unsafe { ptr });
+        println!("Picked file: {:?}", path);
+        // println!("Picked file: {:?}", r.Path());
         Ok(())
     }
 }
