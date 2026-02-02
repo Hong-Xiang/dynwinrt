@@ -2,34 +2,21 @@ use crate::signature::{InterfaceSignature, MethodSignature};
 use crate::types::WinRTType;
 
 pub fn uri_factory() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new("".to_string(), Default::default());
-    vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
-        .add_method(
-            MethodSignature::new()
-                .add(WinRTType::HString)
-                .add_out(WinRTType::Object),
-        );
+    let mut vtable = InterfaceSignature::define_from_iinspectable("", Default::default());
+    vtable.add_method(
+        MethodSignature::new()
+            .add(WinRTType::HString)
+            .add_out(WinRTType::Object),
+    );
     vtable
 }
 
 pub fn uri_vtable() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Foundation.IUriRuntimeClass".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IUriRuntimeClass",
         Default::default(),
     );
     vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 6 get_AbsoluteUri
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 7 get_DisplayUri
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 8 get_Domain
@@ -49,17 +36,11 @@ pub fn uri_vtable() -> InterfaceSignature {
 }
 
 pub fn IAsyncOperationWithProgress() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Foundation.IAsyncOperationWithProgress".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IAsyncOperationWithProgress",
         Default::default(),
     );
     vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
         .add_method(MethodSignature::new()) // 6 SetProgress
         .add_method(MethodSignature::new()) // 7 GetProgress
         .add_method(MethodSignature::new()) // 8 SetCompleted
@@ -69,17 +50,11 @@ pub fn IAsyncOperationWithProgress() -> InterfaceSignature {
 }
 
 pub fn IAsyncOperation() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Foundation.IAsyncOperation".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IAsyncOperation",
         Default::default(),
     );
     vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
         .add_method(MethodSignature::new()) // 6 SetCompleted
         .add_method(MethodSignature::new()) // 7 GetCompleted
         .add_method(MethodSignature::new().add_out(WinRTType::Object)); // 8 GetResults
@@ -87,53 +62,33 @@ pub fn IAsyncOperation() -> InterfaceSignature {
 }
 
 pub fn FileOpenPickerFactory() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Storage.Pickers.IFileOpenPickerFactory".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.IFileOpenPickerFactory",
         Default::default(),
     );
-    vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
-        .add_method(
-            MethodSignature::new()
-                .add(WinRTType::I64)
-                .add_out(WinRTType::Object),
-        ); // 6 CreateWithMode
+    vtable.add_method(
+        MethodSignature::new()
+            .add(WinRTType::I64)
+            .add_out(WinRTType::Object),
+    ); // 6 CreateWithMode
     vtable
 }
 
 pub fn PickFileResult() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Storage.Pickers.PickFileResult".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.PickFileResult",
         Default::default(),
     );
-    vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)); // 6 get_File
+    vtable.add_method(MethodSignature::new().add_out(WinRTType::HString)); // 6 get_File
     vtable
 }
 
 pub fn FileOpenPicker() -> InterfaceSignature {
-    let mut vtable = InterfaceSignature::new(
-        "Windows.Storage.Pickers.IFileOpenPicker".to_string(),
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.IFileOpenPicker",
         Default::default(),
     );
     vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
         .add_method(MethodSignature::new().add(WinRTType::I32)) // 6 put_ViewMode
         .add_method(MethodSignature::new().add_out(WinRTType::I32)) // 7 get_ViewMode
         .add_method(MethodSignature::new().add(WinRTType::Object)) // 8 put_SuggestedStartLocation

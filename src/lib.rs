@@ -2,6 +2,7 @@ use windows::Foundation::IStringable_Impl;
 use windows::{Data::Xml::Dom::*, core::*};
 use windows_future::IAsyncOperation;
 
+mod abi;
 mod result;
 mod call;
 mod interfaces;

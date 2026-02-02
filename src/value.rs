@@ -1,10 +1,7 @@
-use std::mem::{MaybeUninit, zeroed};
-
 use libffi::middle::Arg;
-use windows::Win32::System::WinRT;
-use windows_core::{ComObject, ComObjectInner, GUID, IInspectable, IUnknown, Interface};
+use windows_core::{GUID, IUnknown, Interface};
 
-use crate::WinRTType;
+use crate::result;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum WinRTValue {
@@ -38,14 +35,25 @@ impl WinRTValue {
         }
     }
 
-    pub fn cast(&self, iid: &GUID) -> windows::core::Result<WinRTValue> {
+    pub fn cast(&self, iid: &GUID) -> result::Result<WinRTValue> {
         match self {
             WinRTValue::Object(obj) => {
                 let mut result = std::ptr::null_mut();
                 unsafe { obj.query(iid, &mut result) }.ok()?;
                 Ok(WinRTValue::Object(unsafe { IUnknown::from_raw(result) }))
             }
-            _ => panic!("Can only cast WinRTValue::Object"),
+            _ => Err(result::Error::expect_object_type(self.get_type())),
+        }
+    }
+
+    pub fn get_type(&self) -> crate::WinRTType {
+        match self {
+            WinRTValue::I32(_) => crate::WinRTType::I32,
+            WinRTValue::I64(_) => crate::WinRTType::I64,
+            WinRTValue::Object(_) => crate::WinRTType::Object,
+            WinRTValue::HString(_) => crate::WinRTType::HString,
+            WinRTValue::HResult(_) => crate::WinRTType::HResult,
+            WinRTValue::Pointer(_) => crate::WinRTType::Pointer,
         }
     }
 
@@ -58,23 +66,6 @@ impl WinRTValue {
             WinRTValue::I32(i) => arg(i),
             WinRTValue::I64(i) => arg(i),
             WinRTValue::Pointer(p) => arg(p),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum AbiValue {
-    I32(i32),
-    I64(i64),
-    Pointer(*mut std::ffi::c_void),
-}
-
-impl AbiValue {
-    pub fn as_out_ptr(&self) -> *const std::ffi::c_void {
-        match self {
-            AbiValue::I32(i) => std::ptr::from_ref(i).cast(),
-            AbiValue::I64(i) => std::ptr::from_ref(i).cast(),
-            AbiValue::Pointer(p) => std::ptr::from_ref(p).cast(),
         }
     }
 }

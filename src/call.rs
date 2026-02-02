@@ -2,10 +2,7 @@ use core::ffi::c_void;
 use libffi::middle::{Arg, Cif, arg};
 use windows_core::{HRESULT, HSTRING, IUnknown, Interface};
 
-use crate::{
-    signature::Parameter,
-    value::{AbiValue, WinRTValue},
-};
+use crate::{abi::AbiValue, signature::Parameter, value::WinRTValue};
 
 pub fn get_vtable_function_ptr(obj: *mut c_void, method_index: usize) -> *mut c_void {
     unsafe {
@@ -15,20 +12,6 @@ pub fn get_vtable_function_ptr(obj: *mut c_void, method_index: usize) -> *mut c_
         let vtable_ptr = *(obj as *const *const *mut c_void);
         *vtable_ptr.add(method_index)
     }
-}
-
-unsafe fn foo(com_this_ptr: *mut c_void, out_value: *mut *mut c_void) {}
-
-fn usage(com_this_ptr: *mut c_void) {
-    // stack allocated pointer to receive out parameter
-    let mut out_value: *mut c_void = core::ptr::null_mut();
-    // calling winrt methods
-    unsafe {
-        foo(com_this_ptr, &mut out_value);
-    }
-    // then I need to convert out_value to appropriate type
-    let outCom : IUnknown = unsafe { IUnknown::from_raw(out_value) };
-    let outHString : HSTRING = unsafe { std::mem::transmute(out_value) };
 }
 
 pub fn call_winrt_method_1<T1>(vtable_index: usize, obj: *mut c_void, x1: T1) -> HRESULT {

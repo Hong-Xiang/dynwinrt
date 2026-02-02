@@ -1,6 +1,7 @@
 use windows_core::{IUnknown, Interface};
 
-use crate::value::{AbiValue, WinRTValue};
+use crate::abi::{AbiType, AbiValue};
+use crate::value::WinRTValue;
 
 #[derive(Debug, Clone, Copy)]
 pub enum WinRTType {
@@ -11,7 +12,6 @@ pub enum WinRTType {
     HResult,
     Pointer,
 }
-
 
 impl WinRTType {
     pub fn abi_type(&self) -> AbiType {
@@ -37,30 +37,6 @@ impl WinRTType {
             (WinRTType::Pointer, AbiValue::Pointer(p)) => WinRTValue::Pointer(*p),
             (WinRTType::I64, AbiValue::I64(i)) => WinRTValue::I64(*i),
             _ => panic!("Mismatched out value type"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum AbiType {
-    I32,
-    I64,
-    Ptr,
-}
-
-impl AbiType {
-    pub fn default_value(&self) -> AbiValue {
-        match self {
-            AbiType::I32 => AbiValue::I32(0),
-            AbiType::I64 => AbiValue::I64(0),
-            AbiType::Ptr => AbiValue::Pointer(std::ptr::null_mut()),
-        }
-    }
-    pub fn libffi_type(&self) -> libffi::middle::Type {
-        match self {
-            AbiType::I32 => libffi::middle::Type::i32(),
-            AbiType::I64 => libffi::middle::Type::i64(),
-            AbiType::Ptr => libffi::middle::Type::pointer(),
         }
     }
 }

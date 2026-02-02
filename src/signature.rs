@@ -1,5 +1,5 @@
 use libffi::middle::Cif;
-use windows_core::HSTRING;
+use windows::core::{GUID, HSTRING};
 
 use crate::{call, types::WinRTType, value::WinRTValue};
 
@@ -15,6 +15,7 @@ pub struct MethodSignature {
     out_count: usize,
     parameters: Vec<Parameter>,
     return_type: WinRTType,
+    is_opaque: bool,
 }
 
 impl MethodSignature {
@@ -23,6 +24,7 @@ impl MethodSignature {
             out_count: 0,
             parameters: Vec::new(),
             return_type: WinRTType::HResult,
+            is_opaque: false,
         }
     }
 
@@ -107,12 +109,28 @@ pub struct InterfaceSignature {
 }
 
 impl InterfaceSignature {
-    pub fn new(name: String, iid: windows_core::GUID) -> Self {
+    pub fn define_interface(name: String, iid: windows_core::GUID) -> Self {
         InterfaceSignature {
             name,
             iid,
             methods: Vec::new(),
         }
+    }
+
+    pub fn define_from_iunknown(name: &str, iid: GUID) -> Self {
+        let mut t = InterfaceSignature::define_interface(name.to_owned(), iid);
+        t.add_method(MethodSignature::new()) // 0 QueryInterface
+            .add_method(MethodSignature::new()) // 1 AddRef
+            .add_method(MethodSignature::new()); // 2 Release
+        t
+    }
+
+    pub fn define_from_iinspectable(name: &str, iid: GUID) -> Self {
+        let mut t = Self::define_from_iunknown(name, iid);
+        t.add_method(MethodSignature::new()) // 3 GetIids
+            .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
+            .add_method(MethodSignature::new()); // 5 GetTrustLevel
+        t
     }
 
     pub fn add_method(&mut self, signature: MethodSignature) -> &mut Self {

@@ -22,7 +22,7 @@ impl Future for DynWinRTAsyncOperationWithProgress {
             // println!("Got result: {}", r.to_string());
             let sig = interfaces::IAsyncOperationWithProgress();
             let mut ptr = std::ptr::null_mut();
-            unsafe { self.0.query(&self.1, &mut ptr) };
+            let hr = unsafe { self.0.query(&self.1, &mut ptr) };
             let ukn = unsafe { IUnknown::from_raw(ptr) };
             let results = sig.methods[10].call_dynamic(ukn.as_raw(), &[]);
             let result = results.map(|vs| vs[0].as_hstring().unwrap());
@@ -47,7 +47,7 @@ impl Future for DynWinRTAsyncOperationIUnknown {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         if (self.0.Status().unwrap() == AsyncStatus::Completed) {
-            let insp : IInspectable = self.0.cast()?;
+            let insp: IInspectable = self.0.cast()?;
             println!("Inspectable: {:?}", insp.GetRuntimeClassName()?);
 
             let sig = interfaces::IAsyncOperation();

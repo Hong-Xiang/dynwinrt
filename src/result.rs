@@ -1,8 +1,15 @@
 use crate::WinRTType;
 
 pub enum Error {
+    ExpectObjectTypeError(WinRTType),
     InvalidType(WinRTType, WinRTType),
     WindowsError(windows_core::Error),
+}
+
+impl Error {
+    pub fn expect_object_type(actual: WinRTType) -> Self {
+        Error::ExpectObjectTypeError(actual)
+    }
 }
 
 impl From<windows::core::Error> for Error {
