@@ -166,7 +166,7 @@ mod tests {
             bootstrap_dll_path: None,
         };
         let result = initialize(options);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "message {}", result.err().unwrap().message());
         let factory = crate::roapi::ro_get_activation_factory(h!(
             "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
         ));

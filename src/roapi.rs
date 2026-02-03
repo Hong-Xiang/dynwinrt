@@ -1,10 +1,19 @@
 use windows::Win32::System::WinRT::{IActivationFactory, RoGetActivationFactory};
-use windows_core::HSTRING;
+use windows_core::{HSTRING, IUnknown, Interface};
 
 use crate::value::WinRTValue;
 
 pub fn ro_get_activation_factory(class_name: &HSTRING) -> windows_core::Result<IActivationFactory> {
     unsafe { RoGetActivationFactory::<IActivationFactory>(class_name) }
+}
+
+pub fn query_interface(obj: WinRTValue, iid: &windows_core::GUID) -> windows_core::Result<WinRTValue> {
+    let mut result = std::ptr::null_mut();
+    let unk = obj.as_object().unwrap();
+    unsafe {
+        (unk.query(iid, &mut result)).ok()?;
+    }
+    Ok(WinRTValue::Object(unsafe { IUnknown::from_raw(result)}))
 }
 
 #[cfg(test)]
