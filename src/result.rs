@@ -1,8 +1,11 @@
-use crate::WinRTType;
+use crate::{WinRTType, abi::AbiType};
 
+#[derive(Debug)]
 pub enum Error {
     ExpectObjectTypeError(WinRTType),
     InvalidType(WinRTType, WinRTType),
+    InvalidNestedOutType(WinRTType),
+    InvalidTypeAbiToWinRT(WinRTType, AbiType),
     WindowsError(windows_core::Error),
 }
 

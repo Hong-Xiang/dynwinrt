@@ -1,10 +1,21 @@
 use windows::Win32::System::WinRT::{IActivationFactory, RoGetActivationFactory};
-use windows_core::HSTRING;
+use windows_core::{HSTRING, IUnknown, Interface};
 
 use crate::value::WinRTValue;
 
 pub fn ro_get_activation_factory(class_name: &HSTRING) -> windows_core::Result<IActivationFactory> {
     unsafe { RoGetActivationFactory::<IActivationFactory>(class_name) }
+}
+pub fn ro_get_activation_factory_2(class_name: &HSTRING) -> crate::result::Result<WinRTValue> {
+    let r = unsafe { RoGetActivationFactory::<IActivationFactory>(class_name) };
+    match r {
+        Ok(factory) => {
+            let ukn = unsafe { IUnknown::from_raw(factory.as_raw()) };
+            std::mem::forget(factory);
+            Ok(WinRTValue::Object(ukn))
+        }
+        Err(e) => Err(crate::result::Error::WindowsError(e)),
+    }
 }
 
 #[cfg(test)]

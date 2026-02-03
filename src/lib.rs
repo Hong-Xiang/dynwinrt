@@ -65,6 +65,8 @@ pub async fn http_get_string(url: &str) -> windows_core::Result<String> {
 mod tests {
     use windows::Foundation::{IStringable, Uri};
 
+    use crate::value::WinRTValue;
+
     use super::*;
 
     #[test]
@@ -180,6 +182,21 @@ mod tests {
         let port = get_port.call_dynamic(uri.as_raw(), &[])?;
         assert_eq!(port[0].as_i32().unwrap(), 443);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_uri_call_dynamic() -> Result<()> {
+        let uri = Uri::CreateUri(h!("https://www.example.com/path?query=1#fragment")).unwrap();
+        let rptr = uri.as_raw();
+        let ukn = unsafe { IUnknown::from_raw_borrowed(&rptr)}.unwrap();
+        let obj = WinRTValue::Object( ukn.clone() );
+        let res = obj.call_single_out(17, &WinRTType::HString, &[]).unwrap();
+        // let s : HSTRING = Default::default();
+        // let mut p : *mut std::ffi::c_void = std::ptr::null_mut();
+        // call::call_winrt_method_1(17, uri.as_raw(), &mut p);
+        // let s : HSTRING = unsafe { core::mem::transmute(p) };
+        assert_eq!(res.as_hstring().unwrap(), "https");
         Ok(())
     }
 

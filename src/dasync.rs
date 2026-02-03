@@ -5,7 +5,7 @@ use windows::{
 use windows_core::{GUID, HSTRING, IInspectable, IUnknown};
 use windows_future::{AsyncStatus, IAsyncInfo, IAsyncOperation, IAsyncOperationWithProgress};
 
-use crate::{bindings, interfaces};
+use crate::{bindings, interfaces, value::WinRTValue};
 
 pub struct DynWinRTAsyncOperationWithProgress(IAsyncInfo, GUID);
 
@@ -64,6 +64,36 @@ impl Future for DynWinRTAsyncOperationIUnknown {
         }
         cx.waker().wake_by_ref();
         std::task::Poll::Pending
+    }
+}
+
+impl Future for WinRTValue {
+    type Output = crate::result::Result<WinRTValue>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match self.as_ref().get_ref() {
+            WinRTValue::IAsyncOperation(async_info, iid) => {
+                if (async_info.Status().unwrap() == AsyncStatus::Completed) {
+                    let insp: IInspectable = async_info.cast()?;
+                    println!("Inspectable: {:?}", insp.GetRuntimeClassName()?);
+
+                    let sig = interfaces::IAsyncOperation();
+                    let mut ptr = std::ptr::null_mut();
+                    unsafe { async_info.query(iid, &mut ptr) };
+                    let ukn = unsafe { IUnknown::from_raw(ptr) };
+                    let results = sig.methods[8].call_dynamic(ukn.as_raw(), &[]).map_err(|e| crate::result::Error::WindowsError(e));
+                    let result = results.map(|vs| vs[0].as_object().unwrap().clone());
+                    return std::task::Poll::Ready(Ok(WinRTValue::Object(result.unwrap())));
+                }
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+            WinRTValue::OutValue(_, _) => 
+                std::task::Poll::Ready(Err(crate::result::Error::InvalidNestedOutType(
+                    crate::types::WinRTType::Object,
+                ))),
+            _ => std::task::Poll::Ready(Ok(self.clone())),
+        }
     }
 }
 

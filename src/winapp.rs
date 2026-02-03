@@ -20,6 +20,17 @@ pub struct WinAppSdkBootstrapOptions {
     pub bootstrap_dll_path: Option<String>,
 }
 
+pub fn initialize_winappsdk(major: u32, minor: u32) -> crate::result::Result<WinAppSdkContext> {
+    let options = WinAppSdkBootstrapOptions {
+        major_version: major,
+        minor_version: minor,
+        build_version: 0,
+        revision_version: 0,
+        bootstrap_dll_path: None,
+    };
+    initialize(options).map_err(|e| e.into())
+}
+
 // use MddBootstrapInitialize from WinAppSDK to initialize the WinAppSDK
 pub fn initialize(options: WinAppSdkBootstrapOptions) -> windows::core::Result<WinAppSdkContext> {
     const WINAPPSDK_BOOTSTRAP_DLL_PATH_ENV: &str = "WINAPPSDK_BOOTSTRAP_DLL_PATH";
@@ -188,10 +199,8 @@ mod tests {
         // let u: windows::Foundation::Uri = unimplemented!();
 
         let factoryInterface = interfaces::FileOpenPickerFactory();
-        let result = factoryInterface.methods[6].call_dynamic(
-            fac.as_raw(),
-            &[crate::value::WinRTValue::I64(0)], // PickerMode: 0 = SingleFile
-        )?;
+        let result = factoryInterface.methods[6]
+            .call_dynamic(fac.as_raw(), &[crate::value::WinRTValue::I64(0)])?;
         let rv1 = &result[0].as_object().unwrap();
         let pickerInterface = interfaces::FileOpenPicker();
         let result = pickerInterface.methods[13].call_dynamic(
@@ -217,6 +226,41 @@ mod tests {
         // assert_eq!(r.as_raw(), unsafe { ptr });
         println!("Picked file: {:?}", path);
         // println!("Picked file: {:?}", r.Path());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pick_open_picker_full_dynamic() -> crate::result::Result<()> {
+        let _ = initialize_winappsdk(1, 8).unwrap();
+        let factory = crate::roapi::ro_get_activation_factory_2(h!(
+            "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
+        ))
+        .unwrap();
+        let iid = bindings::IFileOpenPickerFactory::IID;
+        let fac = factory.cast(&iid).unwrap();
+        let picker = fac
+            .call_single_out(
+                6,
+                &crate::WinRTType::Object,
+                &[crate::value::WinRTValue::I64(0)],
+            )
+            .unwrap();
+        let picked_file = picker
+            .call_single_out(
+                13,
+                &crate::WinRTType::IAsyncOperation(
+                    IAsyncOperation::<bindings::PickFileResult>::IID,
+                ),
+                &[],
+            )
+            .unwrap();
+
+        let res = picked_file.await?;
+        println!("Picked file result: {:?}", res);
+        let path = res
+            .call_single_out(6, &crate::WinRTType::HString, &[])
+            .unwrap();
+        println!("Picked file: {:?}", path);
         Ok(())
     }
 }
