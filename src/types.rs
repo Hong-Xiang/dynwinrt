@@ -11,6 +11,7 @@ pub enum WinRTType {
     HString,
     HResult,
     OutValue(Box<WinRTType>),
+    ArrayOfIUnknown,
     IAsyncOperation(GUID)
 }
 
@@ -19,7 +20,20 @@ impl WinRTType {
         match self {
             WinRTType::I32 | WinRTType::HResult => AbiType::I32,
             WinRTType::I64 => AbiType::I64,
-            WinRTType::Object | WinRTType::HString | WinRTType::OutValue(_) | WinRTType::IAsyncOperation(_) => AbiType::Ptr,
+            WinRTType::Object | WinRTType::HString | WinRTType::OutValue(_) | WinRTType::IAsyncOperation(_) | WinRTType::ArrayOfIUnknown => AbiType::Ptr,
+        }
+    }
+
+    pub fn default_value(&self) -> WinRTValue {
+        match self {
+            WinRTType::I32 => WinRTValue::I32(0),
+            WinRTType::I64 => WinRTValue::I64(0),
+            WinRTType::Object => WinRTValue::Object(unsafe { IUnknown::from_raw(std::ptr::null_mut()) }),
+            WinRTType::HString => WinRTValue::HString(windows_core::HSTRING::new()),
+            WinRTType::HResult => WinRTValue::HResult(windows_core::HRESULT(0)),
+            WinRTType::OutValue(_) => WinRTValue::OutValue(std::ptr::null_mut(), self.clone()),
+            WinRTType::IAsyncOperation(guid) => panic!("Cannot create default value for IAsyncOperation {:?}", guid),
+            WinRTType::ArrayOfIUnknown => WinRTValue::ArrayOfIUnknown(crate::value::ArrayOfIUnknownData(windows::core::Array::new())),
         }
     }
 

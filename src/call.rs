@@ -42,6 +42,23 @@ pub fn call_winrt_method_2<T1, T2>(
     }
 }
 
+pub fn call_winrt_method_3<T1, T2, T3>(
+    vtable_index: usize,
+    obj: *mut c_void,
+    x1: T1,
+    x2: T2,
+    x3: T3,
+) -> HRESULT {
+    println!("Calling winrt method 2 vtable index: {}", vtable_index);
+    let method_ptr = get_vtable_function_ptr(obj, vtable_index);
+
+    unsafe {
+        let method: extern "system" fn(*mut c_void, T1, T2, T3) -> HRESULT =
+            std::mem::transmute(method_ptr);
+        method(obj, x1, x2, x3)
+    }
+}
+
 pub fn call_winrt_method_dynamic(
     vtable_index: usize,
     obj: *mut c_void,

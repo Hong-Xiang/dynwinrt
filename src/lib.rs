@@ -1,5 +1,5 @@
 use windows::Foundation::IStringable_Impl;
-use windows::Storage::FileAccessMode;
+use windows::Storage::{FileAccessMode, IStorageFileStatics};
 use windows::{Data::Xml::Dom::*, core::*};
 use windows_future::IAsyncOperation;
 
@@ -21,6 +21,12 @@ impl IIds {
     pub const IFileOpenPickerFactory: windows_core::GUID = bindings::IFileOpenPickerFactory::IID;
     pub const IAsyncOperationPickFileResult: windows_core::GUID =
         IAsyncOperation::<bindings::PickFileResult>::IID;
+    pub const ITextRecognizerStatics: windows_core::GUID = bindings::ITextRecognizerStatics::IID;
+    pub const IImageBufferStatics: windows_core::GUID = bindings::IImageBufferStatics::IID;
+    pub const ISoftwareBitmap: windows_core::GUID = bindings::SoftwareBitmap::IID;
+    pub const IAsyncOperationTextRecognizer: windows_core::GUID =
+        IAsyncOperation::<bindings::TextRecognizer>::IID;
+    pub const RecognizedText: windows_core::GUID = bindings::RecognizedText::IID;
 }
 
 pub fn export_add(x: f64, y: &f64) -> f64 {
@@ -28,15 +34,17 @@ pub fn export_add(x: f64, y: &f64) -> f64 {
     return x + y;
 }
 
-use crate::roapi::query_interface;
-pub use crate::signature::{MethodSignature, InterfaceSignature};
-pub use crate::types::WinRTType;
-use crate::value::WinRTValue;
+use crate::call::get_vtable_function_ptr;
 pub use crate::result::Result;
+use crate::roapi::query_interface;
 pub use crate::roapi::ro_get_activation_factory_2;
+pub use crate::signature::{InterfaceSignature, MethodSignature};
+pub use crate::types::WinRTType;
+pub use crate::value::WinRTValue;
+use crate::winapp::pick_path;
+pub use crate::winapp::test_pick_open_picker_full_dynamic;
 pub use crate::winapp::{WinAppSdkContext, initialize_winappsdk};
 pub use interfaces::uri_vtable;
-pub use crate::winapp::test_pick_open_picker_full_dynamic;
 
 #[implement(windows::Foundation::IStringable)]
 struct MyComObject {
@@ -328,29 +336,36 @@ mod from_api_test {
 
 pub fn windows_ai_ocr_api_call() {
     println!("windows_ai_ocr_api_call called");
+    use bindings::*;
     use winapp::*;
-       use bindings::*;
     let options = WinAppSdkBootstrapOptions {
-            major_version: 1,
-            minor_version: 8,
-            build_version: 0,
-            revision_version: 0,
-            bootstrap_dll_path: None,
-        };
+        major_version: 1,
+        minor_version: 8,
+        build_version: 0,
+        revision_version: 0,
+        bootstrap_dll_path: None,
+    };
     // let result = initialize(options);
     // assert!(result.is_ok(), "message {}", result.err().unwrap().message());
-    let factory = roapi::ro_get_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"));
-    assert!(factory.is_ok(), "message {}", factory.err().unwrap().message());
+    let factory =
+        roapi::ro_get_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"));
+    assert!(
+        factory.is_ok(),
+        "message {}",
+        factory.err().unwrap().message()
+    );
     println!("WinAppSdk initialized");
     let ready_state = TextRecognizer::GetReadyState().unwrap();
     println!("TextRecognizer ready state: {:?}", ready_state);
 }
 
+pub use crate::winapp::get_bitmap_from_file;
+
 pub async fn windows_ai_ocr_api_call_projected(path: &str) -> windows::core::Result<()> {
-    use winapp::*;
     use bindings::*;
+    use winapp::*;
     println!("windows_ai_ocr_api_call_projected called");
-    
+
     let options = WinAppSdkBootstrapOptions {
         major_version: 1,
         minor_version: 8,
@@ -372,29 +387,31 @@ pub async fn windows_ai_ocr_api_call_projected(path: &str) -> windows::core::Res
 
     let recognizer = TextRecognizer::CreateAsync()?.await?;
     println!("TextRecognizer created successfully");
-    
+
     // Load SoftwareBitmap from file path (similar to C# BitmapDecoder pattern)
     // use windows::Storage::{StorageFile, FileAccessMode};
     use windows::Storage::StorageFile;
 
     let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))?.await?;
     println!("File loaded successfully from path: {}", path);
-    let stream = file.OpenAsync(FileAccessMode::Read )?.await?;
+    let stream = file.OpenAsync(FileAccessMode::Read)?.await?;
     println!("File stream opened successfully");
     let decoder = windows::Graphics::Imaging::BitmapDecoder::CreateAsync(&stream)?.await?;
     println!("BitmapDecoder created successfully");
     let bitmap = decoder.GetSoftwareBitmapAsync()?.await?;
     println!("SoftwareBitmap obtained successfully");
     let raw = bitmap.as_raw();
-    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw)};
+    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw) };
     println!("SoftwareBitmap wrapped successfully");
     let image_buffer = ImageBuffer::CreateForSoftwareBitmap(bitmapb).unwrap();
     println!("ImageBuffer created from file successfully");
-    let result = recognizer.RecognizeTextFromImageAsync(&image_buffer)?.await?;
+    let result = recognizer
+        .RecognizeTextFromImageAsync(&image_buffer)?
+        .await?;
     println!("Text recognition completed successfully");
     // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
     let lines = result.Lines()?;
-    for i in 0 .. lines.len() {
+    for i in 0..lines.len() {
         let line = lines[i].as_ref().unwrap();
         println!("Recognized line: {}", line.Text()?);
     }
@@ -404,69 +421,231 @@ pub async fn windows_ai_ocr_api_call_projected(path: &str) -> windows::core::Res
     Ok(())
 }
 
-pub async fn windows_ai_ocr_api_call_dynamic(path: &str) -> windows::core::Result<()> {
+pub fn print_ocr_paths(orc_result: WinRTValue) {
+    let result = orc_result
+        .as_object()
+        .unwrap().cast::<bindings::RecognizedText>()
+        .unwrap();
+    let lines = result.Lines().unwrap();
+    for i in 0..lines.len() {
+        let text = lines[i].as_ref().unwrap().Text().unwrap();
+        println!("Recognized line {}: {}", i, text);
+    }
+}
+
+pub async fn ocr_demo(bitmap: WinRTValue) -> WinRTValue {
+    // use bindings::*;
     use winapp::*;
-    use bindings::*;
-    println!("windows_ai_ocr_api_call_projected called");
-    
-    let options = WinAppSdkBootstrapOptions {
-        major_version: 1,
-        minor_version: 8,
-        build_version: 0,
-        revision_version: 0,
-        bootstrap_dll_path: None,
-    };
-    // initialize(options)?;
-    println!("WinAppSdk initialized");
-    let factory = roapi::ro_get_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"))?;
-    let factory_ukn = WinRTValue::Object(factory.cast::<windows_core::IUnknown>()?);
-    
-    let text_recongizer_factory = query_interface(  factory_ukn, &ITextRecognizerStatics::IID)?;
-    let get_ready_state = MethodSignature::new().add_out(WinRTType::I32).build(6);
-    let ready_state = get_ready_state.call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[]).unwrap()[0]
+    let factory =
+        WinRTValue::from_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"))
+            .unwrap();
+    let text_recongizer_factory = factory.cast(&IIds::ITextRecognizerStatics).unwrap();
+    let ready_state = text_recongizer_factory
+        .call_single_out_2(6, &WinRTType::I32, &[])
+        .unwrap()
         .as_i32()
         .unwrap();
+    println!("TextRecognizer ready state: {:?}", ready_state);
+
+    // if ready_state != AIFeatureReadyState::Ready.0 {
+    if (ready_state != 0) {
+        panic!("TextRecognizer is not ready");
+    }
+    println!("Creating TextRecognizer asynchronously...");
+
+    // let f2 = factory.as_object().unwrap().cast::<ITextRecognizerStatics>().unwrap();
+    let recognizer_v = text_recongizer_factory
+        .call_single_out(
+            8,
+            &WinRTType::IAsyncOperation(IIds::IAsyncOperationTextRecognizer),
+            &[],
+        )
+        .unwrap();
+    println!("TextRecognizer created successfully");
+    let recognizer = (&(recognizer_v)).await.unwrap();
+    println!("SoftwareBitmap wrapped successfully");
+    // let bitmap_v: SoftwareBitmap = bitmap.as_object().unwrap().cast().unwrap();
+    let bitmapt = bitmap.cast(&IIds::ISoftwareBitmap).unwrap();
+    let image_buffer_af = WinRTValue::from_activation_factory(h!("Microsoft.Graphics.Imaging.ImageBuffer")).unwrap();
+    let ImageBufferStatic = image_buffer_af.cast(&IIds::IImageBufferStatics).unwrap();
+    // let image_buffer = ImageBuffer::CreateForSoftwareBitmap(&bitmap_v).unwrap();
+    let image_buffer = ImageBufferStatic
+        .call_single_out(
+            7,
+            &WinRTType::Object,
+            // &[WinRTValue::I64(bitmapt.as_object().unwrap().as_raw() as *const _ as i64)],
+            &[bitmapt]
+        )
+        .unwrap()
+        .as_object()
+        .unwrap();
+    println!("ImageBuffer created from file successfully");
+    // let rukn = unsafe { IUnknown::from_raw(recognizer.as_raw())};
+    // let val = WinRTValue::Object(rukn);
+    // std::mem::forget(recognizer);
+    let res = recognizer
+        .call_single_out(
+            7,
+            &WinRTType::Object,
+            &[WinRTValue::I64(image_buffer.as_raw() as i64)],
+        )
+        .unwrap();
+        // .as_object()
+        // .unwrap();
+    let result = res.cast(&IIds::RecognizedText).unwrap();
+    println!("Text recognition completed successfully");
+    // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
+    // let lines = result.Lines().unwrap();
+    // for i in 0..lines.len() {
+    //     let line = lines[i].as_ref().unwrap();
+    //     println!("Recognized line: {}", line.Text().unwrap());
+    // }
+    // print_ocr_paths(result);
+    result
+}
+
+pub async fn windows_ai_ocr_api_call_dynamic(path: &str) -> result::Result<()> {
+    use bindings::*;
+    use winapp::*;
+    println!("WinAppSdk initialized");
+    // let factory = roapi::ro_get_activation_factory())?;
+    // let factory_ukn = WinRTValue::Object(factory.cast::<windows_core::IUnknown>()?);
+    let factory =
+        WinRTValue::from_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"))
+            .unwrap();
+    let text_recongizer_factory = factory.cast(&IIds::ITextRecognizerStatics).unwrap();
+    let ready_state = text_recongizer_factory
+        .call_single_out_2(6, &WinRTType::I32, &[])
+        .unwrap()
+        .as_i32()
+        .unwrap();
+    // let get_ready_state = MethodSignature::new().add_out(WinRTType::I32).build(6);
+    // let ready_state = get_ready_state.call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[]).unwrap()[0]
+    //     .as_i32()
+    //     .unwrap();
     // let ready_state = TextRecognizer::GetReadyState().unwrap();
     println!("TextRecognizer ready state: {:?}", ready_state);
 
-    if ready_state == AIFeatureReadyState::NotReady.0  {
+    if ready_state == AIFeatureReadyState::NotReady.0 {
         println!("TextRecognizer is not ready, calling EnsureReadyAsync...");
-        let operation = TextRecognizer::EnsureReadyAsync()?.await?;
+        let operation = TextRecognizer::EnsureReadyAsync().unwrap().await.unwrap();
         if operation.Status()? != AIFeatureReadyResultState::Success {
-            return Err(Error::from_hresult(HRESULT(1).into() /* E_FAIL */));
+            return Err(result::Error::WindowsError(Error::from_hresult(
+                HRESULT(1).into(), /* E_FAIL */
+            )));
         }
     }
 
-    let recognizer = TextRecognizer::CreateAsync()?.await?;
+    println!("Creating TextRecognizer asynchronously...");
+
+    // let f2 = factory.as_object().unwrap().cast::<ITextRecognizerStatics>().unwrap();
+    let recognizer_v = text_recongizer_factory
+        .call_single_out(
+            8,
+            &WinRTType::IAsyncOperation(IIds::IAsyncOperationTextRecognizer),
+            &[],
+        )
+        .map_err(|e| {
+            println!("Error calling CreateAsync: {}", e.message());
+            e
+        })
+        .unwrap();
     println!("TextRecognizer created successfully");
-    
+    let recognizer = (&(recognizer_v)).await?;
+
+    // let recognizer = recognizer_o.as_object().unwrap();
+    // .cast::<TextRecognizer>()?;
+
+    // let recognizer = TextRecognizer::CreateAsync().unwrap().await?;
+
     // Load SoftwareBitmap from file path (similar to C# BitmapDecoder pattern)
     // use windows::Storage::{StorageFile, FileAccessMode};
     use windows::Storage::StorageFile;
 
     let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))?.await?;
     println!("File loaded successfully from path: {}", path);
-    let stream = file.OpenAsync(FileAccessMode::Read )?.await?;
+    let stream = file.OpenAsync(FileAccessMode::Read)?.await?;
     println!("File stream opened successfully");
     let decoder = windows::Graphics::Imaging::BitmapDecoder::CreateAsync(&stream)?.await?;
     println!("BitmapDecoder created successfully");
     let bitmap = decoder.GetSoftwareBitmapAsync()?.await?;
     println!("SoftwareBitmap obtained successfully");
     let raw = bitmap.as_raw();
-    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw)};
+    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw) };
     println!("SoftwareBitmap wrapped successfully");
     let image_buffer = ImageBuffer::CreateForSoftwareBitmap(bitmapb).unwrap();
     println!("ImageBuffer created from file successfully");
-    let result = recognizer.RecognizeTextFromImageAsync(&image_buffer)?.await?;
+
+    // let rukn = unsafe { IUnknown::from_raw(recognizer.as_raw())};
+    // let val = WinRTValue::Object(rukn);
+    // std::mem::forget(recognizer);
+    let res = recognizer
+        .call_single_out(
+            7,
+            &WinRTType::Object,
+            &[WinRTValue::I64(image_buffer.as_raw() as i64)],
+        )
+        .map_err(|e| {
+            println!("Error calling RecognizeTextFromImageAsync: {}", e.message());
+            e
+        })
+        .unwrap();
+        // .as_object()
+        // .unwrap();
+    // let result: bindings::RecognizedText = res.cast().unwrap();
+
+    // let fptr = get_vtable_function_ptr(recognizer.as_raw(), 7);
+    // let mut out = std::ptr::null_mut();
+    // unsafe {
+    //     let method: extern "system" fn(
+    //         *mut std::ffi::c_void,
+    //         *mut std::ffi::c_void,
+    //         *mut *mut std::ffi::c_void,
+    //     ) -> HRESULT = std::mem::transmute(fptr);
+    //     let hr = method(
+    //         recognizer.as_raw(),
+    //         image_buffer.as_raw() as *const _ as *mut _,
+    //         // paramAbi.abi() as *mut _,
+    //         &mut out,
+    //     );
+    //     println!("Text recognition dynamic call out HRESULT {:?}", hr);
+    //     hr.ok()
+    //         .map_err(|e| {
+    //             println!("Error calling method: {:?}", e);
+    //             e
+    //         })
+    //         .unwrap();
+    // }
+    // println!("Text recognition dynamic call out result {:?}", out);
+
+    // let result = unsafe { bindings::RecognizedText::from_raw(out) };
+
+    // let result = recognizer.RecognizeTextFromImage(&image_buffer).unwrap();
+
+    // std::mem::forget(val);
     println!("Text recognition completed successfully");
     // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
-    let lines = result.Lines()?;
-    for i in 0 .. lines.len() {
-        let line = lines[i].as_ref().unwrap();
-        println!("Recognized line: {}", line.Text()?);
-    }
-    for line in result.Lines()?.into_iter() {
-        println!("Recognized line: {}", line.as_ref().unwrap().Text()?);
-    }
+    // let lines = result.Lines()?;
+    // for i in 0..lines.len() {
+    //     let line = lines[i].as_ref().unwrap();
+    //     println!("Recognized line: {}", line.Text()?);
+    // }
+    // for line in result.Lines()?.into_iter() {
+    //     println!("Recognized line: {}", line.as_ref().unwrap().Text()?);
+    // }
+    print_ocr_paths(res);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests2 {
+    use windows_core::IUnknown;
+
+    #[test]
+    fn size_of_iunknown() {
+        println!(
+            "Size of IUnknown: {} bytes",
+            core::mem::size_of::<IUnknown>()
+        );
+    }
 }
