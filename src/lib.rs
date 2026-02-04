@@ -26,6 +26,8 @@ impl IIds {
     pub const ISoftwareBitmap: windows_core::GUID = bindings::SoftwareBitmap::IID;
     pub const IAsyncOperationTextRecognizer: windows_core::GUID =
         IAsyncOperation::<bindings::TextRecognizer>::IID;
+    pub const IAsyncOperationRecognizedText: windows_core::GUID =
+        IAsyncOperation::<bindings::RecognizedText>::IID;
     pub const RecognizedText: windows_core::GUID = bindings::RecognizedText::IID;
 }
 
