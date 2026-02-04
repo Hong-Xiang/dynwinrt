@@ -117,6 +117,42 @@ mod IID {
 //     let _ = require_send_sync(x);
 // }
 
+pub async fn test_pick_open_picker_full_dynamic() -> crate::result::Result<()> {
+    use windows::Web::Http::HttpClient;
+    use windows_core::{GUID, IInspectable, Interface};
+    use windows_future::{IAsyncInfo, IAsyncOperation};
+    use crate::bindings;
+    let _ = initialize_winappsdk(1, 8).unwrap();
+    let factory = crate::roapi::ro_get_activation_factory_2(h!(
+        "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
+    ))
+    .unwrap();
+    let iid = bindings::IFileOpenPickerFactory::IID;
+    let fac = factory.cast(&iid).unwrap();
+    let picker = fac
+        .call_single_out(
+            6,
+            &crate::WinRTType::Object,
+            &[crate::value::WinRTValue::I64(0)],
+        )
+        .unwrap();
+    let picked_file = picker
+        .call_single_out(
+            13,
+            &crate::WinRTType::IAsyncOperation(IAsyncOperation::<bindings::PickFileResult>::IID),
+            &[],
+        )
+        .unwrap();
+
+    let res = (&picked_file).await?;
+    println!("Picked file result: {:?}", res);
+    let path = res
+        .call_single_out(6, &crate::WinRTType::HString, &[])
+        .unwrap();
+    println!("Picked file: {:?}", path);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use windows::Web::Http::HttpClient;
@@ -230,37 +266,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pick_open_picker_full_dynamic() -> crate::result::Result<()> {
-        let _ = initialize_winappsdk(1, 8).unwrap();
-        let factory = crate::roapi::ro_get_activation_factory_2(h!(
-            "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
-        ))
-        .unwrap();
-        let iid = bindings::IFileOpenPickerFactory::IID;
-        let fac = factory.cast(&iid).unwrap();
-        let picker = fac
-            .call_single_out(
-                6,
-                &crate::WinRTType::Object,
-                &[crate::value::WinRTValue::I64(0)],
-            )
-            .unwrap();
-        let picked_file = picker
-            .call_single_out(
-                13,
-                &crate::WinRTType::IAsyncOperation(
-                    IAsyncOperation::<bindings::PickFileResult>::IID,
-                ),
-                &[],
-            )
-            .unwrap();
-
-        let res = picked_file.await?;
-        println!("Picked file result: {:?}", res);
-        let path = res
-            .call_single_out(6, &crate::WinRTType::HString, &[])
-            .unwrap();
-        println!("Picked file: {:?}", path);
-        Ok(())
+    async fn test_pick_open_picker_full_dynamic_wrapper() -> crate::result::Result<()> {
+        test_pick_open_picker_full_dynamic().await
     }
 }

@@ -13,6 +13,27 @@ impl Error {
     pub fn expect_object_type(actual: WinRTType) -> Self {
         Error::ExpectObjectTypeError(actual)
     }
+
+    pub fn message(&self) -> String {
+        match self {
+            Error::ExpectObjectTypeError(actual) => {
+                format!("Expected object type, found {:?}", actual)
+            }
+            Error::InvalidType(expected, actual) => {
+                format!("Invalid type: expected {:?}, found {:?}", expected, actual)
+            }
+            Error::InvalidNestedOutType(actual) => {
+                format!("Invalid nested out type: found {:?}", actual)
+            }
+            Error::InvalidTypeAbiToWinRT(expected, actual) => {
+                format!(
+                    "Invalid type ABI to WinRT: expected {:?}, found {:?}",
+                    expected, actual
+                )
+            }
+            Error::WindowsError(err) => format!("Windows error: {}", err),
+        }
+    }
 }
 
 impl From<windows::core::Error> for Error {

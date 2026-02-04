@@ -3,9 +3,9 @@ use windows::{Data::Xml::Dom::*, core::*};
 use windows_future::IAsyncOperation;
 
 mod abi;
-mod result;
 mod call;
 mod interfaces;
+mod result;
 mod roapi;
 mod signature;
 mod types;
@@ -15,16 +15,26 @@ mod winapp;
 mod bindings;
 mod dasync;
 
-
+pub struct IIds;
+impl IIds {
+    pub const IFileOpenPickerFactory: windows_core::GUID = bindings::IFileOpenPickerFactory::IID;
+    pub const IAsyncOperationPickFileResult: windows_core::GUID =
+        IAsyncOperation::<bindings::PickFileResult>::IID;
+}
 
 pub fn export_add(x: f64, y: &f64) -> f64 {
     println!("export_add called with x = {}, y = {}", x, y);
     return x + y;
 }
 
-pub use crate::signature::{MethodSignature, InterfaceSignature};
+pub use crate::result::Result;
+pub use crate::roapi::ro_get_activation_factory_2;
+pub use crate::signature::{InterfaceSignature, MethodSignature};
 pub use crate::types::WinRTType;
+pub use crate::value::WinRTValue;
+pub use crate::winapp::{WinAppSdkContext, initialize_winappsdk};
 pub use interfaces::uri_vtable;
+pub use crate::winapp::test_pick_open_picker_full_dynamic;
 
 #[implement(windows::Foundation::IStringable)]
 struct MyComObject {
@@ -189,8 +199,8 @@ mod tests {
     fn test_uri_call_dynamic() -> Result<()> {
         let uri = Uri::CreateUri(h!("https://www.example.com/path?query=1#fragment")).unwrap();
         let rptr = uri.as_raw();
-        let ukn = unsafe { IUnknown::from_raw_borrowed(&rptr)}.unwrap();
-        let obj = WinRTValue::Object( ukn.clone() );
+        let ukn = unsafe { IUnknown::from_raw_borrowed(&rptr) }.unwrap();
+        let obj = WinRTValue::Object(ukn.clone());
         let res = obj.call_single_out(17, &WinRTType::HString, &[]).unwrap();
         // let s : HSTRING = Default::default();
         // let mut p : *mut std::ffi::c_void = std::ptr::null_mut();
@@ -211,7 +221,7 @@ mod tests {
         let args = vec![Type::f64(), Type::pointer()];
         let cif = Cif::new(args.into_iter(), Type::f64());
 
-        let n : f64 = unsafe { cif.call(CodePtr(add as *mut _), &[arg(&5f64), arg(&&6f64)]) };
+        let n: f64 = unsafe { cif.call(CodePtr(add as *mut _), &[arg(&5f64), arg(&&6f64)]) };
         assert_eq!(11f64, n);
     }
 

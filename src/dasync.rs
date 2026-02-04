@@ -67,7 +67,7 @@ impl Future for DynWinRTAsyncOperationIUnknown {
     }
 }
 
-impl Future for WinRTValue {
+impl Future for &WinRTValue {
     type Output = crate::result::Result<WinRTValue>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {

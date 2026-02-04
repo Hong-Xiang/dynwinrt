@@ -18,6 +18,8 @@ pub enum WinRTValue {
     OutValue(*mut std::ffi::c_void, WinRTType),
     IAsyncOperation(IAsyncInfo, GUID),
 }
+unsafe impl Send for WinRTValue {}
+unsafe impl Sync for WinRTValue {}
 
 impl WinRTValue {
     pub fn as_hstring(&self) -> Option<windows_core::HSTRING> {
