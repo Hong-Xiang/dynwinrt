@@ -37,4 +37,12 @@ impl AbiValue {
             AbiValue::Pointer(p) => std::ptr::from_ref(p).cast(),
         }
     }
+
+    pub fn abi_type(&self) -> AbiType {
+        match self {
+            AbiValue::I32(_) => AbiType::I32,
+            AbiValue::I64(_) => AbiType::I64,
+            AbiValue::Pointer(_) => AbiType::Ptr,
+        }
+    }
 }

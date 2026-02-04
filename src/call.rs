@@ -15,6 +15,8 @@ pub fn get_vtable_function_ptr(obj: *mut c_void, method_index: usize) -> *mut c_
 }
 
 pub fn call_winrt_method_1<T1>(vtable_index: usize, obj: *mut c_void, x1: T1) -> HRESULT {
+    let ptr : *mut c_void = unsafe { std::mem::transmute(&x1) };
+    println!("Calling winrt method 1 vtable index: {} with obj {} x1 {}", vtable_index, obj as usize, unsafe { *(ptr as *mut usize) }); 
     let method_ptr = get_vtable_function_ptr(obj, vtable_index);
 
     unsafe {
@@ -30,6 +32,7 @@ pub fn call_winrt_method_2<T1, T2>(
     x1: T1,
     x2: T2,
 ) -> HRESULT {
+    println!("Calling winrt method 2 vtable index: {}", vtable_index);
     let method_ptr = get_vtable_function_ptr(obj, vtable_index);
 
     unsafe {
@@ -74,7 +77,7 @@ pub fn call_winrt_method_dynamic(
     for p in parameters {
         if p.is_out {
             let out_value = p.typ.from_out_value(&out_values[p.value_index]);
-            result_values.push(out_value);
+            result_values.push(out_value.unwrap());
         }
     }
     Ok(result_values)
