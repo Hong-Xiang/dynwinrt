@@ -1,15 +1,22 @@
-use crate::signature::{MethodSignature, VTableSignature};
+use crate::signature::{InterfaceSignature, MethodSignature};
 use crate::types::WinRTType;
 
-pub fn uri_vtable() -> VTableSignature {
-    let mut vtable = VTableSignature::new();
+pub fn uri_factory() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable("", Default::default());
+    vtable.add_method(
+        MethodSignature::new()
+            .add(WinRTType::HString)
+            .add_out(WinRTType::Object),
+    );
     vtable
-        .add_method(MethodSignature::new()) // 0 QueryInterface
-        .add_method(MethodSignature::new()) // 1 AddRef
-        .add_method(MethodSignature::new()) // 2 Release
-        .add_method(MethodSignature::new()) // 3 GetIids
-        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 4 GetRuntimeClassName
-        .add_method(MethodSignature::new()) // 5 GetTrustLevel
+}
+
+pub fn uri_vtable() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IUriRuntimeClass",
+        Default::default(),
+    );
+    vtable
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 6 get_AbsoluteUri
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 7 get_DisplayUri
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 8 get_Domain
@@ -25,5 +32,70 @@ pub fn uri_vtable() -> VTableSignature {
         .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 18 get_UserName
         .add_method(MethodSignature::new().add_out(WinRTType::I32)) // 19 get_Port
         .add_method(MethodSignature::new()); // 20 get_Suspicious;
+    vtable
+}
+
+pub fn IAsyncOperationWithProgress() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IAsyncOperationWithProgress",
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new()) // 6 SetProgress
+        .add_method(MethodSignature::new()) // 7 GetProgress
+        .add_method(MethodSignature::new()) // 8 SetCompleted
+        .add_method(MethodSignature::new()) // 9 GetCompleted
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)); // 10 GetResults
+    vtable
+}
+
+pub fn IAsyncOperation() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Foundation.IAsyncOperation",
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new()) // 6 SetCompleted
+        .add_method(MethodSignature::new()) // 7 GetCompleted
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)); // 8 GetResults
+    vtable
+}
+
+pub fn FileOpenPickerFactory() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.IFileOpenPickerFactory",
+        Default::default(),
+    );
+    vtable.add_method(
+        MethodSignature::new()
+            .add(WinRTType::I64)
+            .add_out(WinRTType::Object),
+    ); // 6 CreateWithMode
+    vtable
+}
+
+pub fn PickFileResult() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.PickFileResult",
+        Default::default(),
+    );
+    vtable.add_method(MethodSignature::new().add_out(WinRTType::HString)); // 6 get_File
+    vtable
+}
+
+pub fn FileOpenPicker() -> InterfaceSignature {
+    let mut vtable = InterfaceSignature::define_from_iinspectable(
+        "Windows.Storage.Pickers.IFileOpenPicker",
+        Default::default(),
+    );
+    vtable
+        .add_method(MethodSignature::new().add(WinRTType::I32)) // 6 put_ViewMode
+        .add_method(MethodSignature::new().add_out(WinRTType::I32)) // 7 get_ViewMode
+        .add_method(MethodSignature::new().add(WinRTType::Object)) // 8 put_SuggestedStartLocation
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)) // 9 get_SuggestedStartLocation
+        .add_method(MethodSignature::new().add(WinRTType::HString)) // 10 put_CommitButtonText
+        .add_method(MethodSignature::new().add_out(WinRTType::HString)) // 11 get_CommitButtonText
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)) // 12 get_FileTypeFilter
+        .add_method(MethodSignature::new().add_out(WinRTType::Object)); // 13 PickSingleFileAsync
     vtable
 }
