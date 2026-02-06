@@ -12,8 +12,20 @@ pub enum WinRTType {
     HResult,
     OutValue(Box<WinRTType>),
     ArrayOfIUnknown,
-    IAsyncOperation(GUID)
+    IAsyncOperation(GUID),
+
+    // Interface(GUID), // 
+    // IGeneric(GUID, Box<WinRTType>),
+
 }
+
+// let resultType = WinRTType::IAsyncOperation(WinRTType::Interface("...."))
+// let resultType2 = WinRTType::IAsyncOperation(resultType) // IAsyncOperation<IAsyncOperation<PickFileResult>>
+
+// IAsyncOperation<PickFileResult> 
+// IAsyncOperation<StorageFile>
+// IAsyncOperation<_> - guid  pinterface(...., T::Guid)
+
 
 impl WinRTType {
     pub fn abi_type(&self) -> AbiType {

@@ -198,7 +198,7 @@ pub async fn test_pick_open_picker_full_dynamic() -> crate::result::Result<WinRT
 
 #[cfg(test)]
 mod tests {
-    use windows::Web::Http::HttpClient;
+    use windows::{Foundation::Uri, Web::Http::HttpClient};
     use windows_core::{GUID, IInspectable, Interface};
     use windows_future::{IAsyncInfo, IAsyncOperation};
 
@@ -274,6 +274,7 @@ mod tests {
         let mut fPtr = std::ptr::null_mut();
         unsafe { factory?.query(&iid, &mut fPtr) }.ok()?;
         let fac = unsafe { windows_core::IUnknown::from_raw(fPtr) };
+
         // IAsyncOperation<PickFileResult>
         // IAsyncOperation<HSTRING> //
         // IVector<PickFileResult>
