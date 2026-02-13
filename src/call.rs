@@ -1,6 +1,7 @@
 use core::ffi::c_void;
 use libffi::middle::{Arg, Cif, arg};
 use windows_core::{HRESULT, HSTRING, IUnknown, Interface};
+use windows_future::IAsyncOperation;
 
 use crate::{abi::AbiValue, signature::Parameter, value::WinRTValue};
 
@@ -15,8 +16,13 @@ pub fn get_vtable_function_ptr(obj: *mut c_void, method_index: usize) -> *mut c_
 }
 
 pub fn call_winrt_method_1<T1>(vtable_index: usize, obj: *mut c_void, x1: T1) -> HRESULT {
-    let ptr : *mut c_void = unsafe { std::mem::transmute(&x1) };
-    println!("Calling winrt method 1 vtable index: {} with obj {} x1 {}", vtable_index, obj as usize, unsafe { *(ptr as *mut usize) }); 
+    let ptr: *mut c_void = unsafe { std::mem::transmute(&x1) };
+    println!(
+        "Calling winrt method 1 vtable index: {} with obj {} x1 {}",
+        vtable_index,
+        obj as usize,
+        unsafe { *(ptr as *mut usize) }
+    );
     let method_ptr = get_vtable_function_ptr(obj, vtable_index);
 
     unsafe {
@@ -56,6 +62,20 @@ pub fn call_winrt_method_3<T1, T2, T3>(
         let method: extern "system" fn(*mut c_void, T1, T2, T3) -> HRESULT =
             std::mem::transmute(method_ptr);
         method(obj, x1, x2, x3)
+    }
+}
+
+pub fn get_sig<T: windows::core::RuntimeType>() -> windows::core::imp::ConstBuffer {
+    T::SIGNATURE
+}
+
+#[cfg(test)]
+mod testss {
+    use super::*;
+    #[test]
+    fn test_get_sig() {
+        let sig = get_sig::<i32>();
+        println!("{:?}", windows::core::GUID::from_signature(get_sig::<i32>()));
     }
 }
 

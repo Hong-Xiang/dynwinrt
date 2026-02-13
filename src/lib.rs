@@ -13,8 +13,11 @@ mod types;
 mod value;
 mod winapp;
 
+mod array;
 mod bindings;
 mod dasync;
+mod meta;
+pub mod registry;
 
 pub struct IIds;
 impl IIds {
@@ -426,7 +429,8 @@ pub async fn windows_ai_ocr_api_call_projected(path: &str) -> windows::core::Res
 pub fn print_ocr_paths(orc_result: WinRTValue) {
     let result = orc_result
         .as_object()
-        .unwrap().cast::<bindings::RecognizedText>()
+        .unwrap()
+        .cast::<bindings::RecognizedText>()
         .unwrap();
     let lines = result.Lines().unwrap();
     for i in 0..lines.len() {
@@ -468,7 +472,8 @@ pub async fn ocr_demo(bitmap: WinRTValue) -> WinRTValue {
     println!("SoftwareBitmap wrapped successfully");
     // let bitmap_v: SoftwareBitmap = bitmap.as_object().unwrap().cast().unwrap();
     let bitmapt = bitmap.cast(&IIds::ISoftwareBitmap).unwrap();
-    let image_buffer_af = WinRTValue::from_activation_factory(h!("Microsoft.Graphics.Imaging.ImageBuffer")).unwrap();
+    let image_buffer_af =
+        WinRTValue::from_activation_factory(h!("Microsoft.Graphics.Imaging.ImageBuffer")).unwrap();
     let ImageBufferStatic = image_buffer_af.cast(&IIds::IImageBufferStatics).unwrap();
     // let image_buffer = ImageBuffer::CreateForSoftwareBitmap(&bitmap_v).unwrap();
     let image_buffer = ImageBufferStatic
@@ -476,7 +481,7 @@ pub async fn ocr_demo(bitmap: WinRTValue) -> WinRTValue {
             7,
             &WinRTType::Object,
             // &[WinRTValue::I64(bitmapt.as_object().unwrap().as_raw() as *const _ as i64)],
-            &[bitmapt]
+            &[bitmapt],
         )
         .unwrap()
         .as_object()
@@ -492,8 +497,8 @@ pub async fn ocr_demo(bitmap: WinRTValue) -> WinRTValue {
             &[WinRTValue::I64(image_buffer.as_raw() as i64)],
         )
         .unwrap();
-        // .as_object()
-        // .unwrap();
+    // .as_object()
+    // .unwrap();
     let result = res.cast(&IIds::RecognizedText).unwrap();
     println!("Text recognition completed successfully");
     // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
@@ -592,8 +597,8 @@ pub async fn windows_ai_ocr_api_call_dynamic(path: &str) -> result::Result<()> {
             e
         })
         .unwrap();
-        // .as_object()
-        // .unwrap();
+    // .as_object()
+    // .unwrap();
     // let result: bindings::RecognizedText = res.cast().unwrap();
 
     // let fptr = get_vtable_function_ptr(recognizer.as_raw(), 7);

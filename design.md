@@ -27,48 +27,98 @@ A key distinction exists between static and dynamic language projections:
 
 The proposed architecture transitions from static native bindings to a dynamic approach, comprising two primary, separable components:
 
+---
+
+## **Implementation Status** (as of 2025)
+
+✅ **Rust Core Runtime** ([dynwinrt](https://github.com/Hong-Xiang/dynwinrt)) is functional with:
+- Complete 4-layer type system (WinRTType, AbiType, WinRTValue, AbiValue)
+- Both libffi-based dynamic calls and direct type-safe calls
+- WinRT activation factories and QueryInterface
+- IAsyncOperation support with custom Future implementations
+- WinAppSDK Bootstrap initialization
+- WinMD metadata reading (via windows-metadata crate)
+- Hybrid approach: static bindings + dynamic calls
+
+🚧 **In Progress**:
+- Automatic InterfaceSignature generation from WinMD
+- Expanded direct call variants (currently 0-3 parameters)
+- Generic interface support beyond IAsyncOperation
+
+📋 **Not Started**:
+- Value types (struct) passed by value
+- JavaScript bindings (napi-rs integration)
+- Python bindings (PyO3 integration)
+
+---
+
 ### The Runtime Library
 
 This component is a minimal runtime library native to the target ecosystem (e.g., a `.pyd` module or Node.js addon) that facilitates dynamic calls to arbitrary WinRT APIs.
 
 #### FFI and ABI Handling
 
+**Status**: ✅ Implemented using libffi
+
 A minimal dynamic Foreign Function Interface (FFI) layer is responsible for:
-*   Invoking arbitrary WinRT methods via function pointers with correct parameter type information, typically leveraging `dyncall` or `libffi`.
-*   Managing `out` parameters through stack allocation.
-*   Support of WinRT type system, especially runtime generic type system.
-*   Supporting direct pass-by-value for value types, computing struct sizes and alignments at runtime in the absence of `sizeof`.
+*   ✅ Invoking arbitrary WinRT methods via function pointers with correct parameter type information using `libffi`
+*   ✅ Managing `out` parameters through stack allocation via `AbiValue`
+*   ✅ Direct type-safe calls for known signatures (bypassing libffi overhead)
+*   ⚠️ Partial support of WinRT type system (primitives, objects, HSTRINGs, IAsyncOperation)
+*   ❌ Not yet: Value types passed by value, struct size/alignment computation
 
 This infrastructure can be mostly shared across dynamic languages.
 
-#### Platform Primitives 
+**Implementation**: See [call.rs](src/call.rs), [abi.rs](src/abi.rs), [types.rs](src/types.rs)
 
-*   The library wraps fundamental OS APIs, including string handling, `RoInitialize`, `RoGetActivationFactory`, and `QueryInterface`.
-*   **WinAppSDK Bootstrap**: Including the necessary bootstrap DLL and native interop to enable WinAppSDK usage for unpackaged applications.
+#### Platform Primitives
+
+**Status**: ✅ Implemented
+
+*   ✅ The library wraps fundamental OS APIs: `RoInitialize`, `RoGetActivationFactory`, `QueryInterface`
+*   ✅ **WinAppSDK Bootstrap**: Dynamic DLL loading and `MddBootstrapInitialize2` invocation for unpackaged applications
 
 This infrastructure can be mostly shared across dynamic languages.
+
+**Implementation**: See [roapi.rs](src/roapi.rs), [winapp.rs](src/winapp.rs)
 
 #### Language Adaptation
 
-*   Mapping WinRT `HSTRING`s to native language strings.
-*   Converting WinRT `HRESULT`s into language-specific exceptions.
-*   Transforming `IAsyncAction` into language-specific Promises or Awaitables.
+**Status**: ⚠️ Partially implemented (Rust level only, JS/Python bindings not started)
+
+*   ✅ `HSTRING` handling via `windows-core` crate
+*   ✅ `HRESULT` to Result conversion via custom error types
+*   ✅ `IAsyncOperation` to Rust Future via custom implementations
+*   ❌ Not yet: JavaScript Promise integration (requires napi-rs bindings)
+*   ❌ Not yet: Python awaitable integration (requires PyO3 bindings)
+
+**Implementation**: See [result.rs](src/result.rs), [dasync.rs](src/dasync.rs), [value.rs](src/value.rs)
 
 ### Metadata Parser and Projection Generator
+
+**Status**: ⚠️ WinMD reading works, code generation not yet implemented
 
 This component bridges the gap between raw WinMD metadata and the runtime projection, operating in two distinct modes:
 
 #### Mode A: Fully Lazy Assessment (Runtime)
 
+**Status**: 🚧 Partial - can read WinMD but not auto-generate signatures
+
 In this mode, the runtime parses `.winmd` files on the fly as APIs are accessed.
+*   **Current**: WinMD reading demonstrated via `windows-metadata` crate (see [lib.rs:241-316](src/lib.rs#L241-L316))
+*   **Working**: Can read type definitions, method signatures, parameter info
+*   **Missing**: Automatic conversion from metadata to `InterfaceSignature` objects
 *   **Advantages**: Proven stability in previous JavaScript projections and simpler distribution (no generation step required).
 *   **Disadvantages**: Incurs runtime parsing overhead (potentially negligible compared to marshalling) and lacks IDE IntelliSense support.
 
 #### Mode B: Design-Time Generation (Pre-processed)
 
+**Status**: ❌ Not started
+
 A CLI tool parses `.winmd` files to generate **non-native** code (pure `.js` or `.py` files) that defines interface shapes and method signatures for the runtime. This mode can also generate IDE helpers, such as TypeScript `.d.ts` files and Python `.pyi` stubs.
 *   **Advantages**: Enhanced Developer Experience (IntelliSense/Autocomplete) and faster startup times (eliminating WinMD parsing).
 *   **Disadvantages**: Requires a generation step, although strictly without native compilation.
+*   **Current Workaround**: Hand-written signatures in [interfaces.rs](src/interfaces.rs) and static bindings via windows-bindgen for WinAppSDK types
 
 ## Developer Workflow
 
@@ -151,21 +201,37 @@ The WinMD parser allows for the generation of these interface specifications and
 
 ### Stub Method Optimizations
 
-To optimize performance, common method signatures can be implemented within the runtime library. This allows frequent operations to execute with speeds comparable to static projections. Since only the actual ABI signature is critical for these stub methods, a wide variety of WinRT methods can map to a single stub. For instance, getter-like or factory-like methods can often map to a unified signature:
+**Status**: ✅ Implemented in Rust
 
-```cpp
-// Common stub for object.get_X -> Com/HSTRING reference types
-HRESULT Method_Out_Pointer(void* funPtr, ComPtr self, void* outValue) {
-    var f = // cast funPtr to proper function pointer type
-    return f(self, outValue);
-}
+To optimize performance, common method signatures can be implemented within the runtime library. This allows frequent operations to execute with speeds comparable to static projections.
+
+**Current Implementation** ([call.rs:17-60](src/call.rs#L17-L60)):
+```rust
+// Direct type-safe calls for known signatures
+pub fn call_winrt_method_1<T1>(vtable_index: usize, obj: *mut c_void, x1: T1) -> HRESULT;
+pub fn call_winrt_method_2<T1, T2>(vtable_index: usize, obj: *mut c_void, x1: T1, x2: T2) -> HRESULT;
+pub fn call_winrt_method_3<T1, T2, T3>(vtable_index: usize, obj: *mut c_void, x1: T1, x2: T2, x3: T3) -> HRESULT;
 ```
+
+These are used by `WinRTValue::call_single_out()` ([value.rs:83-138](src/value.rs#L83-L138)) to avoid libffi overhead when the signature is known at runtime. Since only the actual ABI signature matters, many WinRT methods map to these stubs (e.g., getters, simple factories).
+
+**Performance**: Direct calls avoid CIF construction and libffi dispatch, providing performance comparable to static projections while maintaining runtime flexibility.
+
+**Future Work**: Generate more variants (4-8 parameters) and specialize for common patterns (getter, setter, factory).
 
 ### Known Challenges
 
-*   **Signature Casting**: Proper handling of GUID casting is required, particularly for type-safety and generics.
-*   **Representation Mapping**: Special handling is needed for JavaScript/Python representations; for example, `IVector` may need to map to a function rather than a simple interface instance.
-*   **Async Operations**: While mentioned, the handling of asynchronous operations requires robust implementation details.
+#### Resolved ✅
+*   ~~**Async Operations**~~: Custom Future implementations work for IAsyncOperation<T>
+
+#### In Progress 🚧
+*   **Signature Generation**: Manual interface signatures work, but need automatic WinMD → InterfaceSignature conversion
+*   **Generic Type GUIDs**: Need runtime GUID computation for parameterized interfaces (IVector&lt;T&gt;, IAsyncOperation&lt;T&gt;)
+
+#### Not Started ❌
+*   **Value Types**: Struct size/alignment calculation at runtime (no sizeof available)
+*   **Representation Mapping**: Special handling for JavaScript/Python representations; for example, `IVector` may need to map to array-like objects
+*   **Generic Interface Support**: Full generic type support beyond IAsyncOperation
 
 ## 7. References
 

@@ -46,3 +46,21 @@ impl AbiValue {
         }
     }
 }
+
+pub struct AbiTypeHandle(usize);
+
+pub trait AbiTypeContext {}
+
+pub enum AbiType2 {
+    I32,
+    I64,
+    F64,
+    Pointer,
+    Structure(Vec<AbiTypeHandle>),
+}
+
+pub struct MethodInfo {
+    pub vtable_index: Option<usize>,
+    pub return_type: AbiType,
+    pub parameter_types: Vec<AbiTypeHandle>,
+}

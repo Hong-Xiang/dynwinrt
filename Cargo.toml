@@ -29,7 +29,14 @@ features = [
     "Win32_Storage_Packaging_Appx",
     "Web_Http",
     "Win32_System_Com",
-    "Graphics_Imaging"
+    "Graphics_Imaging",
+    "Security_Cryptography",
+    "Devices_Enumeration",
+    "AI_Actions",
+    "AI_Agents",
+    "AI_Actions_Hosting",
+    "AI_Actions_Provider",
+    "Devices_Geolocation"
 ]
 
 
