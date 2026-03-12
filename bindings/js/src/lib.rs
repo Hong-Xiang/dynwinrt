@@ -23,8 +23,10 @@ static TABLE: std::sync::LazyLock<Arc<dynwinrt::MetadataTable>> =
 struct WinAppSDKContext(dynwinrt::WinAppSdkContext);
 
 #[napi]
-pub fn init_winappsdk(major: u32, minor: u32) {
-  WinAppSDKContext(dynwinrt::initialize_winappsdk(major, minor).unwrap());
+pub fn init_winappsdk(major: u32, minor: u32) -> napi::Result<()> {
+  dynwinrt::initialize_winappsdk(major, minor)
+    .map(|ctx| { WinAppSDKContext(ctx); })
+    .map_err(|e| napi::Error::from_reason(e.message()))
 }
 
 #[napi]
@@ -34,7 +36,9 @@ pub fn ro_initialize(apartment_type: Option<i32>) {
     0 => RO_INIT_SINGLETHREADED,
     _ => RO_INIT_MULTITHREADED,
   };
-  unsafe { RoInitialize(init_type).unwrap() };
+  // Ignore "already initialized" (S_FALSE) and "changed mode" (RPC_E_CHANGED_MODE)
+  // This allows dynwinrt-js to work in hosts like Electron that pre-initialize COM.
+  let _ = unsafe { RoInitialize(init_type) };
 }
 
 #[napi]
