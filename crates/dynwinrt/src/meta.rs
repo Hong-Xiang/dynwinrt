@@ -194,4 +194,23 @@ mod tests {
         }
         println!("\nTotal distinct array element types: {}", sorted.len());
     }
+
+    #[test]
+    fn verify_typed_event_handler_iid() {
+        use crate::metadata_table::*;
+        use windows_core::{GUID, Interface};
+
+        let table = MetadataTable::new();
+        let piid = GUID::from_u128(0x9de1c534_6ae1_11e0_84e1_18a905bcc53f);
+        let imembufref_iid = GUID::from_u128(0xfbc4dd29_245b_11e4_af98_689423260cf8);
+
+        let g = table.generic(piid, 2);
+        let p = table.parameterized(&g, &[table.interface(imembufref_iid), table.object()]);
+
+        let expected = windows::Foundation::TypedEventHandler::<
+            windows::Foundation::IMemoryBufferReference,
+            windows_core::IInspectable,
+        >::IID;
+        assert_eq!(p.iid().unwrap(), expected);
+    }
 }
