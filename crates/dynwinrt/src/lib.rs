@@ -15,6 +15,7 @@ mod winapp;
 mod array;
 mod bindings;
 mod dasync;
+pub mod delegate;
 mod meta;
 pub mod metadata_table;
 

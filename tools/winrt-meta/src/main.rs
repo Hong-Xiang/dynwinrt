@@ -133,9 +133,15 @@ fn main() {
                 if let TypeMeta::Enum { name, .. } = e { known_types.insert(name.clone()); }
             }
 
+            // Identify delegate types (for import filtering)
+            let delegate_type_names: std::collections::HashSet<String> = all_interfaces.iter()
+                .filter(|i| i.methods.iter().any(|m| m.name == ".ctor") && i.methods.iter().any(|m| m.name == "Invoke"))
+                .map(|i| i.name.clone())
+                .collect();
+
             // Generate interface files
             for iface in &all_interfaces {
-                let ts_code = typescript::generate_interface(iface, &known_types);
+                let ts_code = typescript::generate_interface(iface, &known_types, &delegate_type_names);
                 let filename = format!("{}.ts", iface.name);
                 let filepath = output_dir.join(&filename);
                 fs::write(&filepath, &ts_code).expect("Failed to write generated file");
@@ -156,7 +162,7 @@ fn main() {
 
             // Generate class files
             for class in &all_classes {
-                let ts_code = typescript::generate_class(class, &known_types);
+                let ts_code = typescript::generate_class(class, &known_types, &delegate_type_names);
                 let filename = format!("{}.ts", class.name);
                 let filepath = output_dir.join(&filename);
                 fs::write(&filepath, &ts_code).expect("Failed to write generated file");

@@ -440,6 +440,8 @@ fn well_known_piid(namespace: &str, name: &str) -> Option<&'static str> {
     if namespace == "Windows.Foundation" {
         match name {
             "IReference`1" => Some("61c17706-2d65-11e0-9ae8-d48564015472"),
+            "TypedEventHandler`2" => Some("9de1c534-6ae1-11e0-84e1-18a905bcc53f"),
+            "EventHandler`1" => Some("9de1c533-6ae1-11e0-84e1-18a905bcc53f"),
             _ => None,
         }
     } else if namespace == "Windows.Foundation.Collections" {

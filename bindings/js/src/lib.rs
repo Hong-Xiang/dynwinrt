@@ -1110,3 +1110,48 @@ pub fn callMethod(vtable: &DynWinRTVTable, index: i32, obj: &ComUri) -> String {
   let result = m.call_dynamic(obj.0.as_raw(), &[]).unwrap();
   result[0].as_hstring().unwrap().to_string()
 }
+
+// ======================================================================
+// DynWinRtDelegate — dynamic WinRT delegate (callback) binding
+// ======================================================================
+
+#[napi]
+pub struct DynWinRtDelegate(dynwinrt::WinRTValue);
+
+#[napi]
+impl DynWinRtDelegate {
+  /// Create a delegate COM object from a JS callback function.
+  ///
+  /// - `iid`: delegate interface IID
+  /// - `param_types`: Invoke parameter types
+  /// - `callback`: JS function called when WinRT fires the event
+  #[napi(factory)]
+  pub fn create(
+    iid: &WinGUID,
+    param_types: Vec<&DynWinRTType>,
+    #[napi(ts_arg_type = "(...args: DynWinRTValue[]) => void")]
+    callback: napi::bindgen_prelude::Function<'static, Vec<DynWinRTValue>, ()>,
+  ) -> Result<DynWinRtDelegate> {
+    let tsfn = callback.build_threadsafe_function()
+      .build()?;
+
+    let type_handles: Vec<dynwinrt::TypeHandle> = param_types.iter()
+      .map(|t| t.0.clone())
+      .collect();
+
+    let delegate_callback: dynwinrt::delegate::DelegateCallback = Box::new(move |args: &[dynwinrt::WinRTValue]| {
+      let js_args: Vec<DynWinRTValue> = args.iter().map(|a| DynWinRTValue(a.clone())).collect();
+      tsfn.call(js_args, napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking);
+      windows::core::HRESULT(0)
+    });
+
+    let value = dynwinrt::delegate::create_delegate_value(iid.0, type_handles, delegate_callback);
+    Ok(DynWinRtDelegate(value))
+  }
+
+  /// Get the delegate as a DynWinRtValue for passing to WinRT methods.
+  #[napi]
+  pub fn to_value(&self) -> DynWinRTValue {
+    DynWinRTValue(self.0.clone())
+  }
+}
