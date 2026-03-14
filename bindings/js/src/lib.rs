@@ -680,6 +680,26 @@ impl DynWinRTArray {
   // -- Blittable fast paths: zero-copy read into typed Vec --
 
   #[napi]
+  pub fn to_i8_vec(&self) -> Vec<i32> {
+    unsafe { self.0.as_typed_slice::<i8>().iter().map(|&v| v as i32).collect() }
+  }
+
+  #[napi]
+  pub fn to_u8_vec(&self) -> Vec<u8> {
+    unsafe { self.0.as_typed_slice::<u8>().to_vec() }
+  }
+
+  #[napi]
+  pub fn to_i16_vec(&self) -> Vec<i32> {
+    unsafe { self.0.as_typed_slice::<i16>().iter().map(|&v| v as i32).collect() }
+  }
+
+  #[napi]
+  pub fn to_u16_vec(&self) -> Vec<u32> {
+    unsafe { self.0.as_typed_slice::<u16>().iter().map(|&v| v as u32).collect() }
+  }
+
+  #[napi]
   pub fn to_i32_vec(&self) -> Vec<i32> {
     unsafe { self.0.as_typed_slice::<i32>().to_vec() }
   }
@@ -700,21 +720,69 @@ impl DynWinRTArray {
   }
 
   #[napi]
-  pub fn to_u8_vec(&self) -> Vec<u8> {
-    unsafe { self.0.as_typed_slice::<u8>().to_vec() }
-  }
-
-  #[napi]
   pub fn to_i64_vec(&self) -> Vec<i64> {
     unsafe { self.0.as_typed_slice::<i64>().to_vec() }
   }
 
-  // -- Construction from JS typed arrays (blittable only) --
+  #[napi]
+  pub fn to_u64_vec(&self) -> Vec<i64> {
+    unsafe { self.0.as_typed_slice::<u64>().iter().map(|&v| v as i64).collect() }
+  }
+
+  // -- Batch string conversion --
+
+  #[napi]
+  pub fn to_string_vec(&self) -> Vec<String> {
+    (0..self.0.len()).map(|i| {
+      match self.0.get(i) {
+        dynwinrt::WinRTValue::HString(s) => s.to_string(),
+        other => format!("{:?}", other),
+      }
+    }).collect()
+  }
+
+  // -- Construction from JS typed arrays --
+
+  #[napi]
+  pub fn from_i8_values(values: Vec<i32>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(|v| dynwinrt::WinRTValue::I8(v as i8)).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.i8_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_u8_values(values: Vec<u8>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(dynwinrt::WinRTValue::U8).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.u8_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_i16_values(values: Vec<i32>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(|v| dynwinrt::WinRTValue::I16(v as i16)).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.i16_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_u16_values(values: Vec<u32>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(|v| dynwinrt::WinRTValue::U16(v as u16)).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.u16_type(), &wvals))
+  }
 
   #[napi]
   pub fn from_i32_values(values: Vec<i32>) -> DynWinRTArray {
     let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(dynwinrt::WinRTValue::I32).collect();
     DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.i32_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_u32_values(values: Vec<u32>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(dynwinrt::WinRTValue::U32).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.u32_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_f32_values(values: Vec<f64>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(|v| dynwinrt::WinRTValue::F32(v as f32)).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.f32_type(), &wvals))
   }
 
   #[napi]
@@ -724,9 +792,23 @@ impl DynWinRTArray {
   }
 
   #[napi]
-  pub fn from_u8_values(values: Vec<u8>) -> DynWinRTArray {
-    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(dynwinrt::WinRTValue::U8).collect();
-    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.u8_type(), &wvals))
+  pub fn from_i64_values(values: Vec<i64>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(dynwinrt::WinRTValue::I64).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.i64_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_u64_values(values: Vec<i64>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter().map(|v| dynwinrt::WinRTValue::U64(v as u64)).collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.u64_type(), &wvals))
+  }
+
+  #[napi]
+  pub fn from_string_values(values: Vec<String>) -> DynWinRTArray {
+    let wvals: Vec<dynwinrt::WinRTValue> = values.into_iter()
+      .map(|s| dynwinrt::WinRTValue::HString(HSTRING::from(&s)))
+      .collect();
+    DynWinRTArray(dynwinrt::ArrayData::from_values(TABLE.make(dynwinrt::TypeKind::HString), &wvals))
   }
 
   /// Wrap as DynWinRTValue::Array for passing to call().
@@ -751,6 +833,42 @@ impl DynWinRTStruct {
   #[napi]
   pub fn create(typ: &DynWinRTType) -> DynWinRTStruct {
     DynWinRTStruct(typ.0.default_value())
+  }
+
+  #[napi]
+  pub fn get_i8(&self, index: u32) -> i32 {
+    self.0.get_field::<i8>(index as usize) as i32
+  }
+  #[napi]
+  pub fn set_i8(&mut self, index: u32, value: i32) {
+    self.0.set_field(index as usize, value as i8);
+  }
+
+  #[napi]
+  pub fn get_u8(&self, index: u32) -> u32 {
+    self.0.get_field::<u8>(index as usize) as u32
+  }
+  #[napi]
+  pub fn set_u8(&mut self, index: u32, value: u32) {
+    self.0.set_field(index as usize, value as u8);
+  }
+
+  #[napi]
+  pub fn get_i16(&self, index: u32) -> i32 {
+    self.0.get_field::<i16>(index as usize) as i32
+  }
+  #[napi]
+  pub fn set_i16(&mut self, index: u32, value: i32) {
+    self.0.set_field(index as usize, value as i16);
+  }
+
+  #[napi]
+  pub fn get_u16(&self, index: u32) -> u32 {
+    self.0.get_field::<u16>(index as usize) as u32
+  }
+  #[napi]
+  pub fn set_u16(&mut self, index: u32, value: u32) {
+    self.0.set_field(index as usize, value as u16);
   }
 
   #[napi]
@@ -799,12 +917,107 @@ impl DynWinRTStruct {
   }
 
   #[napi]
-  pub fn get_u8(&self, index: u32) -> u32 {
-    self.0.get_field::<u8>(index as usize) as u32
+  pub fn get_u64(&self, index: u32) -> i64 {
+    self.0.get_field::<u64>(index as usize) as i64
   }
   #[napi]
-  pub fn set_u8(&mut self, index: u32, value: u32) {
-    self.0.set_field(index as usize, value as u8);
+  pub fn set_u64(&mut self, index: u32, value: i64) {
+    self.0.set_field(index as usize, value as u64);
+  }
+
+  // -- Non-blittable field access --
+
+  #[napi]
+  pub fn get_hstring(&self, index: u32) -> String {
+    let inner = self.0.get_field_struct(index as usize);
+    // The field is an HSTRING (pointer-sized). Read it as a WinRTValue and convert.
+    // get_field_struct handles the duplicate/clone of the HSTRING.
+    // We need to read the raw HSTRING pointer from the inner ValueTypeData.
+    let hstr: HSTRING = unsafe {
+      let raw = *(inner.as_ptr() as *const *mut std::ffi::c_void);
+      if raw.is_null() {
+        HSTRING::new()
+      } else {
+        // Clone so we don't steal the reference from inner (which will Drop)
+        let hstr_ref: &HSTRING = &*((&raw) as *const *mut std::ffi::c_void as *const HSTRING);
+        hstr_ref.clone()
+      }
+    };
+    hstr.to_string()
+  }
+
+  #[napi]
+  pub fn set_hstring(&mut self, index: u32, value: String) {
+    let hstr = HSTRING::from(&value);
+    let field_handle = self.0.type_handle().field_type(index as usize);
+    let mut field_val = field_handle.default_value();
+    unsafe {
+      let raw: *mut std::ffi::c_void = std::mem::transmute(hstr);
+      (field_val.as_mut_ptr() as *mut *mut std::ffi::c_void).write(raw);
+    }
+    // set_field_struct duplicates non-blittable fields, so field_val's HSTRING
+    // will be cloned into parent. Let field_val drop normally to release the original.
+    self.0.set_field_struct(index as usize, &field_val);
+  }
+
+  #[napi]
+  pub fn get_guid(&self, index: u32) -> WinGUID {
+    let guid = self.0.get_field::<windows::core::GUID>(index as usize);
+    WinGUID(guid)
+  }
+
+  #[napi]
+  pub fn set_guid(&mut self, index: u32, value: &WinGUID) {
+    self.0.set_field(index as usize, value.0);
+  }
+
+  #[napi]
+  pub fn get_struct(&self, index: u32) -> DynWinRTStruct {
+    DynWinRTStruct(self.0.get_field_struct(index as usize))
+  }
+
+  #[napi]
+  pub fn set_struct(&mut self, index: u32, value: &DynWinRTStruct) {
+    self.0.set_field_struct(index as usize, &value.0);
+  }
+
+  #[napi]
+  pub fn get_object(&self, index: u32) -> napi::Result<DynWinRTValue> {
+    let inner = self.0.get_field_struct(index as usize);
+    let raw = unsafe { *(inner.as_ptr() as *const *mut std::ffi::c_void) };
+    if raw.is_null() {
+      Ok(DynWinRTValue(dynwinrt::WinRTValue::Null))
+    } else {
+      let obj = unsafe { IUnknown::from_raw_borrowed(&raw) }
+        .ok_or_else(|| napi::Error::from_reason("null COM pointer"))?
+        .clone();
+      Ok(DynWinRTValue(dynwinrt::WinRTValue::Object(obj)))
+    }
+  }
+
+  #[napi]
+  pub fn set_object(&mut self, index: u32, value: &DynWinRTValue) {
+    match &value.0 {
+      dynwinrt::WinRTValue::Object(obj) => {
+        let field_handle = self.0.type_handle().field_type(index as usize);
+        let mut field_val = field_handle.default_value();
+        unsafe {
+          // Clone the object (AddRef) and write the raw pointer
+          let cloned = obj.clone();
+          let raw = cloned.into_raw();
+          (field_val.as_mut_ptr() as *mut *mut std::ffi::c_void).write(raw);
+        }
+        // set_field_struct duplicates non-blittable fields, so field_val's COM pointer
+        // will be cloned (AddRef) into parent. Let field_val drop to release the original.
+        self.0.set_field_struct(index as usize, &field_val);
+      }
+      dynwinrt::WinRTValue::Null => {
+        let field_handle = self.0.type_handle().field_type(index as usize);
+        let field_val = field_handle.default_value();
+        self.0.set_field_struct(index as usize, &field_val);
+      }
+      _ => {}
+    }
   }
 
   /// Wrap as DynWinRTValue::Struct for passing to call().

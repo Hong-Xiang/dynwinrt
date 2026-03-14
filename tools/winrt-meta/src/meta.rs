@@ -59,6 +59,8 @@ pub struct ClassMeta {
     pub namespace: String,
     pub full_name: String,
     pub default_interface: Option<InterfaceMeta>,
+    /// Versioned/required interfaces (IFoo2, IFoo3, etc.) with instance methods.
+    pub required_interfaces: Vec<InterfaceMeta>,
     pub factory_interfaces: Vec<InterfaceMeta>,
     pub static_interfaces: Vec<InterfaceMeta>,
     pub has_default_constructor: bool,
@@ -192,6 +194,9 @@ pub fn collect_imports(class: &ClassMeta) -> HashSet<(String, String)> {
         visit_methods(&iface.methods, class_name, &mut imports);
     }
     for iface in &class.static_interfaces {
+        visit_methods(&iface.methods, class_name, &mut imports);
+    }
+    for iface in &class.required_interfaces {
         visit_methods(&iface.methods, class_name, &mut imports);
     }
 
@@ -418,6 +423,9 @@ fn collect_all_refs_from_classes(
         for iface in &c.static_interfaces {
             collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
         }
+        for iface in &c.required_interfaces {
+            collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
+        }
     }
 }
 
@@ -491,7 +499,8 @@ fn parse_class_from_index(index: &reader::Index, namespace: &str, name: &str) ->
     let mut static_interfaces = Vec::new();
     let mut has_default_constructor = false;
 
-    // 1. Find default interface from InterfaceImpl attributes
+    // 1. Find default interface and collect all required interfaces
+    let mut required_iface_names: Vec<(String, String)> = Vec::new();
     for iface_impl in def.interface_impls() {
         let iface_ty = iface_impl.interface(&[]);
         let (iface_ns, iface_name) = match &iface_ty {
@@ -502,6 +511,20 @@ fn parse_class_from_index(index: &reader::Index, namespace: &str, name: &str) ->
         if iface_impl.has_attribute("DefaultAttribute") {
             if let Some(iface_meta) = parse_interface(index, &iface_ns, &iface_name) {
                 default_interface = Some(iface_meta);
+            }
+        } else {
+            // Non-default required interface (e.g. ILanguageModel2, versioned interfaces)
+            required_iface_names.push((iface_ns, iface_name));
+        }
+    }
+
+    // 1b. Parse required interfaces (e.g. ILanguageModel2, versioned interfaces)
+    // These contain instance methods accessible on the class, but on separate COM interfaces.
+    let mut required_interfaces: Vec<InterfaceMeta> = Vec::new();
+    for (ns, iname) in &required_iface_names {
+        if let Some(req_iface) = parse_interface(index, ns, iname) {
+            if !req_iface.methods.is_empty() {
+                required_interfaces.push(req_iface);
             }
         }
     }
@@ -545,6 +568,7 @@ fn parse_class_from_index(index: &reader::Index, namespace: &str, name: &str) ->
         namespace: namespace.to_string(),
         full_name,
         default_interface,
+        required_interfaces,
         factory_interfaces,
         static_interfaces,
         has_default_constructor,
@@ -983,4 +1007,5 @@ mod iface_tests {
         }
     }
 }
+
 
