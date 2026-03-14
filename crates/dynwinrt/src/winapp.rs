@@ -1,15 +1,11 @@
-use std::ffi::{CString, OsStr};
-use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::ffi::CString;
 
 use windows::ApplicationModel::PackageVersion;
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
-use windows::core::{PCSTR, PCWSTR};
-use windows_core::{HRESULT, HSTRING, HStringBuilder, IUnknown, h};
-use windows_future::IAsyncOperation;
-
-use crate::{WinRTValue, bindings};
+use windows::core::PCSTR;
+use windows::core::PCWSTR;
+use windows_core::{HRESULT, HSTRING, h};
 
 pub struct WinAppSdkContext;
 
@@ -102,125 +98,9 @@ pub fn find_winappsdk_package(
 type MddBootstrapInitialize2 =
     unsafe extern "system" fn(u32, PCWSTR, PackageVersion, u32) -> HRESULT;
 
-mod IID {
-    use windows_core::{GUID, IUnknown, Interface};
-
-    pub static IID_IUnknown: GUID = GUID::from_u128(0x00000000_0000_0000_c000_000000000046);
-    pub static IID_IUnknown2: GUID = IUnknown::IID;
-}
-
-// async fn require_send_sync<T: Send + Sync>(_: &T) {}
-// fn foo(x: &IUnknown) {
-//     // let _ = require_send_sync(x); // compile error :
-//     // `NonNull<c_void>` cannot be sent between threads safely
-//     // within `IUnknown`, the trait `Send` is not implemented for `NonNull<c_void>`
-// }
-// fn bar(x: &IAsyncOperation<HSTRING>) {
-//     let _ = require_send_sync(x);
-// }
-
-pub async fn pick_path() -> crate::result::Result<WinRTValue> {
-    use crate::bindings;
-    use windows::Web::Http::HttpClient;
-    use windows_core::{GUID, IInspectable, Interface};
-    use windows_future::{IAsyncInfo, IAsyncOperation};
-    let reg = crate::metadata_table::MetadataTable::new();
-    let factory = crate::roapi::ro_get_activation_factory_2(h!(
-        "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
-    ))
-    .unwrap();
-    let iid = bindings::IFileOpenPickerFactory::IID;
-    let fac = factory.cast(&iid).unwrap();
-    let picker = {
-        let method = crate::signature::MethodSignature::new(&reg)
-            .add_in(reg.i64_type()).add_out(reg.object()).build(6);
-        method.call_dynamic(fac.as_object().unwrap().as_raw(), &[crate::value::WinRTValue::I64(0)])
-            .unwrap().into_iter().next().unwrap()
-    };
-    let picked_file = {
-        let async_op_type = reg.async_operation(&reg.runtime_class(
-            "Microsoft.Windows.Storage.Pickers.PickFileResult".into(),
-            IAsyncOperation::<bindings::PickFileResult>::IID,
-        ));
-        let method = crate::signature::MethodSignature::new(&reg)
-            .add_out(async_op_type).build(13);
-        method.call_dynamic(picker.as_object().unwrap().as_raw(), &[])
-            .unwrap().into_iter().next().unwrap()
-    };
-
-    let res = picked_file.await?;
-    println!("Picked file result: {:?}", res);
-    let path = {
-        let method = crate::signature::MethodSignature::new(&reg)
-            .add_out(reg.hstring()).build(6);
-        method.call_dynamic(res.as_object().unwrap().as_raw(), &[])
-            .unwrap().into_iter().next().unwrap()
-    };
-    println!("Picked file: {:?}", path);
-    Ok(path)
-}
-
-pub async fn get_bitmap_from_file() -> WinRTValue {
-    use windows::Storage::FileAccessMode;
-    use windows::core::Interface;
-    let picked = pick_path().await.unwrap().as_hstring().unwrap();
-    // let picker = bindings::FileOpenPicker::CreateInstance(Default::default()).unwrap();
-    // let pick_result = picker.PickSingleFileAsync().unwrap().await.unwrap();
-    // let StorageFileActivationFactory = WinRTValue::from_activation_factory(h!("Windows.Storage.StorageFile")).unwrap();
-    // let StorageFile = StorageFileActivationFactory.cast(&windows::Storage::IStorageFileStatics::IID).unwrap();
-    // let file_o = StorageFile.call_single_out(6,
-    //     &WinRTType::IAsyncOperation(IAsyncOperation::<windows::Storage::StorageFile>::IID),
-    //     &[WinRTValue::I64(&picked as *const _ as i64)]
-    //     ).unwrap();
-    // println!("Getting file from path async...");
-    let file = windows::Storage::StorageFile::GetFileFromPathAsync(&picked)
-        .unwrap()
-        .await
-        .unwrap();
-    // let file = (&file_o).await.unwrap().as_object().unwrap().cast::<windows::Storage::StorageFile>().unwrap();
-    println!("File loaded successfully from path: {}", picked);
-    let stream = file.OpenAsync(FileAccessMode::Read).unwrap().await.unwrap();
-    println!("File stream opened successfully");
-    let decoder = windows::Graphics::Imaging::BitmapDecoder::CreateAsync(&stream)
-        .unwrap()
-        .await
-        .unwrap();
-    println!("BitmapDecoder created successfully");
-    let bitmap = decoder.GetSoftwareBitmapAsync().unwrap().await.unwrap();
-    println!("SoftwareBitmap obtained successfully");
-    let raw = bitmap.as_raw();
-    let result = WinRTValue::Object(unsafe { IUnknown::from_raw(raw) });
-    std::mem::forget(bitmap);
-    result
-}
-
-
-
-pub async fn test_pick_open_picker_full_dynamic() -> crate::result::Result<WinRTValue> {
-    let _ = initialize_winappsdk(1, 8).unwrap();
-    pick_path().await
-}
-
 #[cfg(test)]
 mod tests {
-    use windows::{Foundation::Uri, Web::Http::HttpClient};
-    use windows_core::{GUID, IInspectable, Interface};
-    use windows_future::{IAsyncInfo, IAsyncOperation};
-
-    use crate::{bindings, interfaces};
-
     use super::*;
-
-    #[test]
-    fn use_windows_rs_find_package() -> windows::core::Result<()> {
-        let packages = find_winappsdk_package(1, 8)?;
-        assert!(!packages.is_empty());
-        packages.into_iter().for_each(|pkg| {
-            let name = pkg.DisplayName().unwrap().to_string();
-            println!("Found package: {}", name);
-        });
-        Ok(())
-    }
 
     #[test]
     fn test_initialize() {
@@ -233,104 +113,5 @@ mod tests {
         };
         let result = initialize(options);
         assert!(result.is_ok());
-    }
-
-    #[repr(transparent)]
-    #[derive(Clone, PartialEq, Eq, Debug)]
-    struct PickFileResult(IUnknown);
-
-    #[test]
-    fn use_bindings() {}
-
-    struct IAsyncOperationFilePickResultWrapper(IUnknown);
-
-    #[tokio::test]
-    async fn test_http_get_string() -> windows_core::Result<()> {
-        let s = crate::http_get_string("https://www.microsoft.com").await?;
-        println!("HTTP GET result: {}", s);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_pick_open_picker() -> windows_core::Result<()> {
-        let options = WinAppSdkBootstrapOptions {
-            major_version: 1,
-            minor_version: 8,
-            build_version: 0,
-            revision_version: 0,
-            bootstrap_dll_path: None,
-        };
-        let result = initialize(options);
-        assert!(
-            result.is_ok(),
-            "message {}",
-            result.err().unwrap().message()
-        );
-        let factory = crate::roapi::ro_get_activation_factory(h!(
-            "Microsoft.Windows.Storage.Pickers.FileOpenPicker"
-        ));
-        assert!(factory.is_ok());
-        let iid = GUID::from_values(
-            828278487,
-            55202,
-            23937,
-            [179, 121, 122, 247, 130, 7, 177, 175],
-        );
-        let mut fPtr = std::ptr::null_mut();
-        unsafe { factory?.query(&iid, &mut fPtr) }.ok()?;
-        let fac = unsafe { windows_core::IUnknown::from_raw(fPtr) };
-
-        // IAsyncOperation<PickFileResult>
-        // IAsyncOperation<HSTRING> //
-        // IVector<PickFileResult>
-        // let a: IAsyncOperation<HSTRING> = unimplemented!();
-        // let c: HttpClient = HttpClient::new()?;
-        // let u: windows::Foundation::Uri = unimplemented!();
-
-        let reg = crate::metadata_table::MetadataTable::new();
-        let factoryInterface = interfaces::FileOpenPickerFactory(&reg);
-        let result = factoryInterface.methods[6]
-            .call_dynamic(fac.as_raw(), &[crate::value::WinRTValue::I64(0)])?;
-        let rv1 = &result[0].as_object().unwrap();
-        let pickerInterface = interfaces::FileOpenPicker(&reg);
-        let result = pickerInterface.methods[13].call_dynamic(
-            rv1.as_raw(),
-            &[], // No parameters
-        )?;
-        let rv2 = &result[0].as_object().unwrap();
-
-        // let asv: IAsyncOperation<bindings::PickFileResult> = rv2.cast().unwrap();
-        // let rr = asv.join()?;
-        let rva: IAsyncInfo = rv2.cast().unwrap();
-        let reg = crate::metadata_table::MetadataTable::new();
-        let async_val = crate::value::WinRTValue::Async(crate::value::AsyncInfo {
-            info: rva,
-            async_type: reg.async_operation(&reg.object()),
-        });
-        let res = async_val.await.map_err(|e| match e {
-            crate::result::Error::WindowsError(we) => we,
-            other => windows_core::Error::new(windows_core::HRESULT(-1), &other.message()),
-        })?;
-        println!("Picked file result: {:?}", res);
-        let reg = crate::metadata_table::MetadataTable::new();
-        let pfrvtbl = interfaces::PickFileResult(&reg);
-        let path_results = pfrvtbl.methods[6].call_dynamic(res.as_object().unwrap().as_raw(), &[])?;
-        let path = path_results[0].as_hstring().unwrap();
-        // let mut ptr = std::ptr::null_mut();
-        // unsafe { res.query(&bindings::PickFileResult::IID, &mut ptr) }.unwrap();
-        // // let r: bindings::PickFileResult = unsafe { bindings::PickFileResult::from_raw(ptr as _) };
-        // let r: bindings::PickFileResult = res.cast()?;
-        // assert_eq!(r.as_raw(), unsafe { ptr });
-        println!("Picked file: {:?}", path);
-        // println!("Picked file: {:?}", r.Path());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_pick_open_picker_full_dynamic_wrapper() -> crate::result::Result<()> {
-        initialize_winappsdk(1, 8).unwrap();
-        let path = test_pick_open_picker_full_dynamic().await.unwrap();
-        println!("Picked path: {:?}", path.as_hstring().unwrap());
-        Ok(())
     }
 }

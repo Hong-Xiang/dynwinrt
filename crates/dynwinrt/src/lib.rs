@@ -1,7 +1,4 @@
-use windows::Foundation::IStringable_Impl;
-use windows::Storage::{FileAccessMode, IStorageFileStatics};
-use windows::{Data::Xml::Dom::*, core::*};
-use windows_future::IAsyncOperation;
+use windows::core::*;
 
 mod abi;
 mod call;
@@ -13,67 +10,21 @@ mod value;
 mod winapp;
 
 mod array;
-mod bindings;
 mod dasync;
 pub mod delegate;
 mod meta;
 pub mod metadata_table;
 
-pub struct IIds;
-impl IIds {
-    pub const IFileOpenPickerFactory: windows_core::GUID = bindings::IFileOpenPickerFactory::IID;
-    pub const IAsyncOperationPickFileResult: windows_core::GUID =
-        IAsyncOperation::<bindings::PickFileResult>::IID;
-    pub const ITextRecognizerStatics: windows_core::GUID = bindings::ITextRecognizerStatics::IID;
-    pub const IImageBufferStatics: windows_core::GUID = bindings::IImageBufferStatics::IID;
-    pub const ISoftwareBitmap: windows_core::GUID = bindings::SoftwareBitmap::IID;
-    pub const IAsyncOperationTextRecognizer: windows_core::GUID =
-        IAsyncOperation::<bindings::TextRecognizer>::IID;
-    pub const IAsyncOperationRecognizedText: windows_core::GUID =
-        IAsyncOperation::<bindings::RecognizedText>::IID;
-    pub const TextRecognizer: windows_core::GUID = bindings::TextRecognizer::IID;
-    pub const RecognizedText: windows_core::GUID = bindings::RecognizedText::IID;
-}
-
-pub fn export_add(x: f64, y: &f64) -> f64 {
-    println!("export_add called with x = {}, y = {}", x, y);
-    return x + y;
-}
-
-use crate::call::get_vtable_function_ptr;
 pub use crate::result::Result;
-use crate::roapi::query_interface;
 pub use crate::roapi::ro_get_activation_factory_2;
 pub use crate::signature::{InterfaceSignature, MethodSignature};
 pub use crate::metadata_table::{TypeHandle, TypeKind, MetadataTable, MethodHandle, ValueTypeData};
 pub use crate::array::ArrayData;
 pub use crate::value::WinRTValue;
-use crate::winapp::pick_path;
-pub use crate::winapp::test_pick_open_picker_full_dynamic;
 pub use crate::winapp::{WinAppSdkContext, initialize_winappsdk};
 pub use interfaces::uri_vtable;
 
-#[implement(windows::Foundation::IStringable)]
-struct MyComObject {
-    pub data: i32,
-}
-
-impl IStringable_Impl for MyComObject_Impl {
-    fn ToString(&self) -> windows_core::Result<windows_core::HSTRING> {
-        Ok(HSTRING::from(format!(
-            "MyComObject ToString with data: {}",
-            self.data
-        )))
-    }
-}
-
-impl Drop for MyComObject {
-    fn drop(&mut self) {
-        println!("MyComObject is being dropped");
-    }
-}
-
-pub async fn get_async_string(op_string: IAsyncOperation<HSTRING>) -> windows_core::Result<String> {
+pub async fn get_async_string(op_string: windows_future::IAsyncOperation<HSTRING>) -> windows_core::Result<String> {
     let s = op_string.await?;
     Ok(s.to_string())
 }
@@ -90,7 +41,8 @@ pub async fn http_get_string(url: &str) -> windows_core::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use windows::Foundation::{IStringable, Uri};
+    use windows::Data::Xml::Dom::*;
+    use windows::Foundation::Uri;
 
     use crate::value::WinRTValue;
 
@@ -113,26 +65,14 @@ mod tests {
             use std::future::IntoFuture;
 
             let uri = Uri::CreateUri(h!("https://www.microsoft.com"))?;
-            uri.SchemeName()?; // "http"
+            uri.SchemeName()?;
             uri.Host();
             uri.Port();
             let op = windows::Web::Http::HttpClient::new()?.GetStringAsync(&uri)?;
             let s = op.into_future().await?;
-            // println!("Response: {}", s);
 
             Ok(())
         })
-    }
-
-    #[test]
-    fn customCom() -> Result<()> {
-        let my_obj = MyComObject { data: 42 };
-        let sta: IStringable = my_obj.into();
-        assert_eq!(
-            sta.ToString()?.to_os_string(),
-            "MyComObject ToString with data: 42"
-        );
-        Ok(())
     }
 
     #[test]
@@ -158,27 +98,6 @@ mod tests {
         assert_eq!(uri.Path()?, "/path");
         assert_eq!(uri.Query()?, "?query=1");
         assert_eq!(uri.Fragment()?, "#fragment");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_winrt_uri_interop_using_libffi() -> Result<()> {
-        use libffi::middle::*;
-        use std::ffi::c_void;
-        use windows::Foundation::Uri;
-
-        let uri = Uri::CreateUri(h!("http://www.example.com/path?query=1#fragment"))?;
-        let mut hstr = HSTRING::new();
-        let out_ptr: *mut c_void = std::ptr::from_mut(&mut hstr).cast();
-        let obj = uri.as_raw();
-        let fptr = call::get_vtable_function_ptr(obj.cast(), 17);
-        let pars = vec![Type::pointer(), Type::pointer()];
-        let cif = Cif::new(pars, Type::i32());
-        let args = &[arg(&obj), arg(&out_ptr)];
-        let hr: HRESULT = unsafe { cif.call(CodePtr(fptr), args) };
-        hr.ok()?;
-        assert_eq!(hstr, "http");
 
         Ok(())
     }
@@ -221,99 +140,6 @@ mod tests {
         let res = vtable.methods[17].call_dynamic(uri.as_raw(), &[])?;
         assert_eq!(res[0].as_hstring().unwrap(), "https");
         Ok(())
-    }
-
-    #[test]
-    fn test_calling_simple_add_extern_c() {
-        extern "C" fn add(x: f64, y: &f64) -> f64 {
-            return x + y;
-        }
-
-        use libffi::middle::*;
-
-        let args = vec![Type::f64(), Type::pointer()];
-        let cif = Cif::new(args.into_iter(), Type::f64());
-
-        let n: f64 = unsafe { cif.call(CodePtr(add as *mut _), &[arg(&5f64), arg(&&6f64)]) };
-        assert_eq!(11f64, n);
-    }
-
-    #[test]
-    fn test_winmd_read() {
-        use windows_metadata::*;
-
-        let index = reader::Index::read(
-            r"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd",
-        )
-        .unwrap();
-
-        let def = index.expect("Windows.Foundation", "Point");
-        assert_eq!(def.namespace(), "Windows.Foundation");
-        assert_eq!(def.name(), "Point");
-
-        let extends = def.extends().unwrap();
-        assert_eq!(extends.namespace(), "System");
-        assert_eq!(extends.name(), "ValueType");
-
-        let fields: Vec<_> = def.fields().collect();
-        assert_eq!(fields.len(), 2);
-        assert_eq!(fields[0].name(), "X");
-        assert_eq!(fields[1].name(), "Y");
-        assert_eq!(fields[0].ty(), Type::F32);
-        assert_eq!(fields[1].ty(), Type::F32);
-        println!("{:?}", fields);
-    }
-
-    #[test]
-    fn test_winmd_read_uri() {
-        use windows_metadata::*;
-        let index = reader::Index::read(
-            r"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd",
-        )
-        .unwrap();
-        let def = index.expect("Windows.Foundation", "Uri");
-        // list all methods and print their signatures
-        for method in def.methods() {
-            let params: Vec<String> = method
-                .params()
-                .enumerate()
-                .map(|(i, p)| format!("{}: {:?}", p.name(), method.signature(&[]).types))
-                .collect();
-            println!(
-                "fn {:?} {}({}) -> {:?}",
-                method.flags(),
-                method.name(),
-                params.join(", "),
-                method.signature(&[]).return_type
-            );
-        }
-    }
-
-    #[test]
-    fn test_winmd_read_http_client() {
-        use windows_metadata::*;
-        let index = reader::Index::read(
-            r"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd",
-        )
-        .unwrap();
-        let def = index.expect("Windows.Web.Http", "HttpClient");
-        // list all methods and print their signatures
-        for (i, method) in def.methods().enumerate() {
-            let params: Vec<String> = method
-                .params()
-                .enumerate()
-                .map(|(i, p)| format!("{}: {:?}", p.name(), ""))
-                .collect();
-            println!(
-                "#{}, fn {:?} {}({}) -> {:?}",
-                i,
-                // method.flags(),
-                "",
-                method.name(),
-                params.join(", "),
-                method.signature(&[]).return_type
-            );
-        }
     }
 
     #[test]
@@ -532,316 +358,5 @@ mod tests {
         assert_eq!(array.get_i32(4), 500);
 
         Ok(())
-    }
-}
-
-mod from_api_test {
-    use windows::{Win32::System::Com::IUri, core::*};
-    link!("urlmon.dll" "system" fn CreateUri(
-    uri: PCWSTR, 
-    flags: u32, 
-    reserved: usize, 
-    result: *mut *mut core::ffi::c_void) -> HRESULT);
-    fn main() -> Result<()> {
-        unsafe {
-            let mut uri = core::mem::zeroed();
-            let uri: IUri = CreateUri(w!("http://kennykerr.ca"), 0, 0, &mut uri)
-                .and_then(|| Type::from_abi(uri))?;
-            let domain = uri.GetDomain()?;
-            let port = uri.GetPort()?;
-            println!("{:?} ({port})", domain);
-        }
-        Ok(())
-    }
-}
-
-pub fn windows_ai_ocr_api_call() {
-    println!("windows_ai_ocr_api_call called");
-    use bindings::*;
-    use winapp::*;
-    let options = WinAppSdkBootstrapOptions {
-        major_version: 1,
-        minor_version: 8,
-        build_version: 0,
-        revision_version: 0,
-        bootstrap_dll_path: None,
-    };
-    // let result = initialize(options);
-    // assert!(result.is_ok(), "message {}", result.err().unwrap().message());
-    let factory =
-        roapi::ro_get_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"));
-    assert!(
-        factory.is_ok(),
-        "message {}",
-        factory.err().unwrap().message()
-    );
-    println!("WinAppSdk initialized");
-    let ready_state = TextRecognizer::GetReadyState().unwrap();
-    println!("TextRecognizer ready state: {:?}", ready_state);
-}
-
-pub use crate::winapp::get_bitmap_from_file;
-
-pub async fn windows_ai_ocr_api_call_projected(path: &str) -> windows::core::Result<()> {
-    use bindings::*;
-    use winapp::*;
-    println!("windows_ai_ocr_api_call_projected called");
-
-    let options = WinAppSdkBootstrapOptions {
-        major_version: 1,
-        minor_version: 8,
-        build_version: 0,
-        revision_version: 0,
-        bootstrap_dll_path: None,
-    };
-    // initialize(options)?;
-    println!("WinAppSdk initialized");
-    let ready_state = TextRecognizer::GetReadyState().unwrap();
-    println!("TextRecognizer ready state: {:?}", ready_state);
-
-    if ready_state == AIFeatureReadyState::NotReady {
-        let operation = TextRecognizer::EnsureReadyAsync()?.await?;
-        if operation.Status()? != AIFeatureReadyResultState::Success {
-            return Err(Error::from_hresult(HRESULT(1).into() /* E_FAIL */));
-        }
-    }
-
-    let recognizer = TextRecognizer::CreateAsync()?.await?;
-    println!("TextRecognizer created successfully");
-
-    // Load SoftwareBitmap from file path (similar to C# BitmapDecoder pattern)
-    // use windows::Storage::{StorageFile, FileAccessMode};
-    use windows::Storage::StorageFile;
-
-    let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))?.await?;
-    println!("File loaded successfully from path: {}", path);
-    let stream = file.OpenAsync(FileAccessMode::Read)?.await?;
-    println!("File stream opened successfully");
-    let decoder = windows::Graphics::Imaging::BitmapDecoder::CreateAsync(&stream)?.await?;
-    println!("BitmapDecoder created successfully");
-    let bitmap = decoder.GetSoftwareBitmapAsync()?.await?;
-    println!("SoftwareBitmap obtained successfully");
-    let raw = bitmap.as_raw();
-    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw) };
-    println!("SoftwareBitmap wrapped successfully");
-    let image_buffer = ImageBuffer::CreateForSoftwareBitmap(bitmapb).unwrap();
-    println!("ImageBuffer created from file successfully");
-    let result = recognizer
-        .RecognizeTextFromImageAsync(&image_buffer)?
-        .await?;
-    println!("Text recognition completed successfully");
-    // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
-    let lines = result.Lines()?;
-    for i in 0..lines.len() {
-        let line = lines[i].as_ref().unwrap();
-        println!("Recognized line: {}", line.Text()?);
-    }
-    for line in result.Lines()?.into_iter() {
-        println!("Recognized line: {}", line.as_ref().unwrap().Text()?);
-    }
-    Ok(())
-}
-
-pub fn print_ocr_paths(orc_result: WinRTValue) {
-    let result = orc_result
-        .as_object()
-        .unwrap().cast::<bindings::RecognizedText>()
-        .unwrap();
-    let lines = result.Lines().unwrap();
-    for i in 0..lines.len() {
-        let text = lines[i].as_ref().unwrap().Text().unwrap();
-        println!("Recognized line {}: {}", i, text);
-    }
-}
-
-pub async fn ocr_demo(bitmap: WinRTValue) -> WinRTValue {
-    // use bindings::*;
-    use winapp::*;
-    let reg = metadata_table::MetadataTable::new();
-    let factory =
-        WinRTValue::from_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"))
-            .unwrap();
-    let text_recongizer_factory = factory.cast(&IIds::ITextRecognizerStatics).unwrap();
-    let get_ready_state = signature::MethodSignature::new(&reg).add_out(reg.i32_type()).build(6);
-    let ready_state = get_ready_state
-        .call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[])
-        .unwrap()[0]
-        .as_i32()
-        .unwrap();
-    println!("TextRecognizer ready state: {:?}", ready_state);
-
-    // if ready_state != AIFeatureReadyState::Ready.0 {
-    if (ready_state != 0) {
-        panic!("TextRecognizer is not ready");
-    }
-    println!("Creating TextRecognizer asynchronously...");
-
-    let async_op_type = reg.async_operation(&reg.runtime_class(
-        "Microsoft.Windows.AI.Imaging.TextRecognizer".into(),
-        bindings::TextRecognizer::IID,
-    ));
-    let create_async = signature::MethodSignature::new(&reg).add_out(async_op_type).build(8);
-    let recognizer_v = create_async
-        .call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[])
-        .unwrap().into_iter().next().unwrap();
-    println!("TextRecognizer created successfully");
-    let recognizer = recognizer_v.await.unwrap();
-    println!("SoftwareBitmap wrapped successfully");
-    let bitmapt = bitmap.cast(&IIds::ISoftwareBitmap).unwrap();
-    let image_buffer_af = WinRTValue::from_activation_factory(h!("Microsoft.Graphics.Imaging.ImageBuffer")).unwrap();
-    let image_buffer_static = image_buffer_af.cast(&IIds::IImageBufferStatics).unwrap();
-    let create_for_bitmap = signature::MethodSignature::new(&reg).add_in(reg.object()).add_out(reg.object()).build(7);
-    let image_buffer = create_for_bitmap
-        .call_dynamic(image_buffer_static.as_object().unwrap().as_raw(), &[bitmapt])
-        .unwrap().into_iter().next().unwrap()
-        .as_object()
-        .unwrap();
-    println!("ImageBuffer created from file successfully");
-    let recognize = signature::MethodSignature::new(&reg).add_in(reg.i64_type()).add_out(reg.object()).build(7);
-    let res = recognize
-        .call_dynamic(recognizer.as_object().unwrap().as_raw(), &[WinRTValue::I64(image_buffer.as_raw() as i64)])
-        .unwrap().into_iter().next().unwrap();
-        // .as_object()
-        // .unwrap();
-    let result = res.cast(&IIds::RecognizedText).unwrap();
-    println!("Text recognition completed successfully");
-    // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
-    // let lines = result.Lines().unwrap();
-    // for i in 0..lines.len() {
-    //     let line = lines[i].as_ref().unwrap();
-    //     println!("Recognized line: {}", line.Text().unwrap());
-    // }
-    // print_ocr_paths(result);
-    result
-}
-
-pub async fn windows_ai_ocr_api_call_dynamic(path: &str) -> result::Result<()> {
-    use bindings::*;
-    use winapp::*;
-    let reg = metadata_table::MetadataTable::new();
-    println!("WinAppSdk initialized");
-    let factory =
-        WinRTValue::from_activation_factory(h!("Microsoft.Windows.AI.Imaging.TextRecognizer"))
-            .unwrap();
-    let text_recongizer_factory = factory.cast(&IIds::ITextRecognizerStatics).unwrap();
-    let get_ready_state = signature::MethodSignature::new(&reg).add_out(reg.i32_type()).build(6);
-    let ready_state = get_ready_state
-        .call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[])
-        .unwrap()[0]
-        .as_i32()
-        .unwrap();
-    println!("TextRecognizer ready state: {:?}", ready_state);
-
-    if ready_state == AIFeatureReadyState::NotReady.0 {
-        println!("TextRecognizer is not ready, calling EnsureReadyAsync...");
-        let operation = TextRecognizer::EnsureReadyAsync().unwrap().await.unwrap();
-        if operation.Status()? != AIFeatureReadyResultState::Success {
-            return Err(result::Error::WindowsError(Error::from_hresult(
-                HRESULT(1).into(), /* E_FAIL */
-            )));
-        }
-    }
-
-    println!("Creating TextRecognizer asynchronously...");
-
-    // let f2 = factory.as_object().unwrap().cast::<ITextRecognizerStatics>().unwrap();
-    let async_op_type = reg.async_operation(&reg.runtime_class(
-        "Microsoft.Windows.AI.Imaging.TextRecognizer".into(),
-        bindings::TextRecognizer::IID,
-    ));
-    let create_async = signature::MethodSignature::new(&reg).add_out(async_op_type).build(8);
-    let recognizer_v = create_async
-        .call_dynamic(text_recongizer_factory.as_object().unwrap().as_raw(), &[])
-        .unwrap().into_iter().next().unwrap();
-    println!("TextRecognizer created successfully");
-    let recognizer = recognizer_v.await?;
-
-    // let recognizer = recognizer_o.as_object().unwrap();
-    // .cast::<TextRecognizer>()?;
-
-    // let recognizer = TextRecognizer::CreateAsync().unwrap().await?;
-
-    // Load SoftwareBitmap from file path (similar to C# BitmapDecoder pattern)
-    // use windows::Storage::{StorageFile, FileAccessMode};
-    use windows::Storage::StorageFile;
-
-    let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))?.await?;
-    println!("File loaded successfully from path: {}", path);
-    let stream = file.OpenAsync(FileAccessMode::Read)?.await?;
-    println!("File stream opened successfully");
-    let decoder = windows::Graphics::Imaging::BitmapDecoder::CreateAsync(&stream)?.await?;
-    println!("BitmapDecoder created successfully");
-    let bitmap = decoder.GetSoftwareBitmapAsync()?.await?;
-    println!("SoftwareBitmap obtained successfully");
-    let raw = bitmap.as_raw();
-    let bitmapb = unsafe { bindings::SoftwareBitmap::from_raw_borrowed(&raw) };
-    println!("SoftwareBitmap wrapped successfully");
-    let image_buffer = ImageBuffer::CreateForSoftwareBitmap(bitmapb).unwrap();
-    println!("ImageBuffer created from file successfully");
-
-    // let rukn = unsafe { IUnknown::from_raw(recognizer.as_raw())};
-    // let val = WinRTValue::Object(rukn);
-    // std::mem::forget(recognizer);
-    let recognize = signature::MethodSignature::new(&reg).add_in(reg.i64_type()).add_out(reg.object()).build(7);
-    let res = recognize
-        .call_dynamic(recognizer.as_object().unwrap().as_raw(), &[WinRTValue::I64(image_buffer.as_raw() as i64)])
-        .unwrap().into_iter().next().unwrap();
-        // .as_object()
-        // .unwrap();
-    // let result: bindings::RecognizedText = res.cast().unwrap();
-
-    // let fptr = get_vtable_function_ptr(recognizer.as_raw(), 7);
-    // let mut out = std::ptr::null_mut();
-    // unsafe {
-    //     let method: extern "system" fn(
-    //         *mut std::ffi::c_void,
-    //         *mut std::ffi::c_void,
-    //         *mut *mut std::ffi::c_void,
-    //     ) -> HRESULT = std::mem::transmute(fptr);
-    //     let hr = method(
-    //         recognizer.as_raw(),
-    //         image_buffer.as_raw() as *const _ as *mut _,
-    //         // paramAbi.abi() as *mut _,
-    //         &mut out,
-    //     );
-    //     println!("Text recognition dynamic call out HRESULT {:?}", hr);
-    //     hr.ok()
-    //         .map_err(|e| {
-    //             println!("Error calling method: {:?}", e);
-    //             e
-    //         })
-    //         .unwrap();
-    // }
-    // println!("Text recognition dynamic call out result {:?}", out);
-
-    // let result = unsafe { bindings::RecognizedText::from_raw(out) };
-
-    // let result = recognizer.RecognizeTextFromImage(&image_buffer).unwrap();
-
-    // std::mem::forget(val);
-    println!("Text recognition completed successfully");
-    // TODO: Call recognizer.RecognizeTextFromImage(image_buffer) when bitmap is available
-    // let lines = result.Lines()?;
-    // for i in 0..lines.len() {
-    //     let line = lines[i].as_ref().unwrap();
-    //     println!("Recognized line: {}", line.Text()?);
-    // }
-    // for line in result.Lines()?.into_iter() {
-    //     println!("Recognized line: {}", line.as_ref().unwrap().Text()?);
-    // }
-    print_ocr_paths(res);
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests2 {
-    use windows_core::IUnknown;
-
-    #[test]
-    fn size_of_iunknown() {
-        println!(
-            "Size of IUnknown: {} bytes",
-            core::mem::size_of::<IUnknown>()
-        );
     }
 }
