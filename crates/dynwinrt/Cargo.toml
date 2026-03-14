@@ -15,36 +15,20 @@ windows-metadata = "0.59.0"
 [dependencies.windows]
 version = ">=0.59, <=0.62"
 features = [
+    "ApplicationModel",
     "Data_Xml_Dom",
-    "Win32_Security",
+    "Devices_Geolocation",
+    "System_Threading",
+    "Web_Http",
+    "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_WinRT",
-    "ApplicationModel",
-    "Management_Deployment",
-    "Storage",
-    "Storage_Streams",
-    "Graphics_Imaging",
-    "Win32_System_Threading",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_Storage_Packaging_Appx",
-    "Web_Http",
-    "System_Threading",
-    "Win32_System_Com",
-    "Graphics_Imaging",
-    "Security_Cryptography",
-    "Devices_Enumeration",
-    "Devices_Geolocation",
 ]
 
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 futures = "0.3.31"
-windows-bindgen = "0.66.0"
-
 [[bench]]
 name = "uri_bench"
 harness = false
-
-[build-dependencies]
-windows-bindgen = "0.66.0"

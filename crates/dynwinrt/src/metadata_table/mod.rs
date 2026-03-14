@@ -714,7 +714,9 @@ mod tests {
         let storage_file = table.runtime_class("Windows.Storage.StorageFile".into(), GUID::from_u128(0xFA3F6186_4214_428C_A64C_14C9AC7315EA));
         let g = table.generic(IASYNC_OPERATION, 1);
         let ty = table.parameterized(&g, &[storage_file]);
-        assert_eq!(ty.iid().unwrap(), windows_future::IAsyncOperation::<windows::Storage::StorageFile>::IID);
+        // IAsyncOperation<StorageFile> IID, verified against windows_future::IAsyncOperation::<StorageFile>::IID
+        let expected_iid = GUID::from_u128(0x5e52f8ce_aced_5a42_95b4_f674dd84885e);
+        assert_eq!(ty.iid().unwrap(), expected_iid);
     }
 
     #[test]

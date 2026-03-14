@@ -54,7 +54,12 @@ mod tests {
         let uriStatic: IUriEscapeStatics = factory.cast()?;
 
         let reg = crate::metadata_table::MetadataTable::new();
-        let uriFactoryInterface = interfaces::uri_factory(&reg);
+        let mut uriFactoryInterface = crate::signature::InterfaceSignature::define_from_iinspectable("", Default::default(), &reg);
+        uriFactoryInterface.add_method(
+            crate::signature::MethodSignature::new(&reg)
+                .add_in(reg.hstring())
+                .add_out(reg.object()),
+        );
         let result = uriFactoryInterface.methods[6].call_dynamic(
             uriFactory.as_raw(),
             &[WinRTValue::HString(
