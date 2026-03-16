@@ -105,18 +105,25 @@ impl MetadataTable {
     // Interface method table writes
     // -----------------------------------------------------------------------
 
+    /// Create an interface method table. Called only when dedup already checked by caller.
     pub(super) fn create_interface_method_table(&self, iid: GUID) {
-        self.interface_methods.write().unwrap().insert(iid, InterfaceMethodTable {
+        self.interface_methods.write().unwrap().entry(iid).or_insert_with(|| InterfaceMethodTable {
             method_names: Vec::new(),
             method_indices: Vec::new(),
         });
     }
 
     /// Add a method to an interface's method table. Returns the vtable index.
+    /// If a method with the same name already exists, skips and returns the existing vtable index.
     pub(super) fn push_method(&self, iid: &GUID, name: &str, sig: MethodSignature) -> u32 {
         let mut iface_methods = self.interface_methods.write().unwrap();
         let table = iface_methods.get_mut(iid)
             .expect("Interface not found — call register_interface first");
+
+        // Dedup: if method name already registered, return existing vtable index
+        if let Some(pos) = table.method_names.iter().position(|n| n == name) {
+            return (6 + pos) as u32;
+        }
 
         let vtable_index = 6 + table.method_indices.len();
         let method = sig.build(vtable_index);
@@ -132,15 +139,15 @@ impl MetadataTable {
     }
 
     // -----------------------------------------------------------------------
-    // Struct name index (for dedup)
+    // Named type index (unified dedup for struct, enum, runtime_class, interface)
     // -----------------------------------------------------------------------
 
-    pub(super) fn get_struct_index_by_name(&self, name: &str) -> Option<u32> {
-        self.struct_names.read().unwrap().get(name).copied()
+    pub(super) fn get_named_type(&self, name: &str) -> Option<TypeKind> {
+        self.type_names.read().unwrap().get(name).copied()
     }
 
-    pub(super) fn insert_struct_name(&self, name: &str, index: u32) {
-        self.struct_names.write().unwrap().insert(name.to_string(), index);
+    pub(super) fn insert_named_type(&self, name: &str, kind: TypeKind) {
+        self.type_names.write().unwrap().insert(name.to_string(), kind);
     }
 
     // -----------------------------------------------------------------------

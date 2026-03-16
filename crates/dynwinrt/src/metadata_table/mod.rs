@@ -43,8 +43,8 @@ pub struct MetadataTable {
     // --- Indexes (no data duplication, only pointers) ---
     /// IID → method table for O(1) interface method lookup.
     interface_methods: RwLock<HashMap<GUID, InterfaceMethodTable>>,
-    /// Name → struct arena index for dedup on struct_type.
-    struct_names: RwLock<HashMap<String, u32>>,
+    /// Name → TypeKind for dedup of all named types (struct, enum, runtime_class).
+    type_names: RwLock<HashMap<String, TypeKind>>,
 }
 
 impl std::fmt::Debug for MetadataTable {
@@ -70,7 +70,7 @@ impl MetadataTable {
             enum_entries: RwLock::new(Vec::new()),
             methods: RwLock::new(Vec::new()),
             interface_methods: RwLock::new(HashMap::new()),
-            struct_names: RwLock::new(HashMap::new()),
+            type_names: RwLock::new(HashMap::new()),
         })
     }
 
@@ -123,7 +123,12 @@ impl MetadataTable {
 
     // Compound types that allocate indexed storage
     pub fn runtime_class(self: &Arc<Self>, name: String, default_iid: GUID) -> TypeHandle {
-        self.make(self.push_runtime_class(name, default_iid))
+        if let Some(kind) = self.get_named_type(&name) {
+            return self.make(kind);
+        }
+        let kind = self.push_runtime_class(name.clone(), default_iid);
+        self.insert_named_type(&name, kind);
+        self.make(kind)
     }
 
     pub fn parameterized(self: &Arc<Self>, generic_def: &TypeHandle, args: &[TypeHandle]) -> TypeHandle {
@@ -166,27 +171,38 @@ impl MetadataTable {
 
     /// Register a named interface. Creates an IID → method table.
     /// Returns a TypeHandle for chaining `.add_method()`.
-    pub fn register_interface(self: &Arc<Self>, _name: &str, iid: GUID) -> TypeHandle {
+    pub fn register_interface(self: &Arc<Self>, name: &str, iid: GUID) -> TypeHandle {
+        if let Some(kind) = self.get_named_type(name) {
+            return self.make(kind);
+        }
         self.create_interface_method_table(iid);
-        self.make(TypeKind::Interface(iid))
+        let kind = TypeKind::Interface(iid);
+        self.insert_named_type(name, kind);
+        self.make(kind)
     }
 
     /// Register a named struct with dedup. If already registered, returns
     /// the existing TypeHandle.
     pub fn struct_type(self: &Arc<Self>, name: &str, fields: &[TypeHandle]) -> TypeHandle {
-        if let Some(idx) = self.get_struct_index_by_name(name) {
-            return self.make(TypeKind::Struct(idx));
+        if let Some(kind) = self.get_named_type(name) {
+            return self.make(kind);
         }
         let field_kinds: Vec<TypeKind> = fields.iter().map(|h| h.kind).collect();
         let id = self.push_struct(name, field_kinds);
-        self.insert_struct_name(name, id);
-        self.make(TypeKind::Struct(id))
+        let kind = TypeKind::Struct(id);
+        self.insert_named_type(name, kind);
+        self.make(kind)
     }
 
     /// Register a named enum with member values.
     pub fn enum_type(self: &Arc<Self>, name: &str, members: Vec<(String, i32)>) -> TypeHandle {
+        if let Some(kind) = self.get_named_type(name) {
+            return self.make(kind);
+        }
         let id = self.push_enum(name, members);
-        self.make(TypeKind::Enum(id))
+        let kind = TypeKind::Enum(id);
+        self.insert_named_type(name, kind);
+        self.make(kind)
     }
 
     // -----------------------------------------------------------------------
