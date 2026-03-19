@@ -334,8 +334,14 @@ pub fn generate_interface(iface: &InterfaceMeta, known_types: &HashSet<String>, 
     }
     out.push('\n');
 
-    // IID constant
-    if !iface.iid.is_empty() {
+    // IID constant — for parameterized interfaces, compute from PIID + type args
+    if let Some(ref piid) = iface.generic_piid {
+        let args_ts: Vec<String> = iface.generic_args.iter().map(|a| ts_dynwinrt_type(a)).collect();
+        out.push_str(&format!(
+            "export const IID_{} = DynWinRtType.parameterized(WinGuid.parse('{}'), [{}]).iid()!;\n\n",
+            iface.name, piid, args_ts.join(", ")
+        ));
+    } else if !iface.iid.is_empty() {
         out.push_str(&format!(
             "export const IID_{} = WinGuid.parse('{}');\n\n",
             iface.name, iface.iid
@@ -365,9 +371,16 @@ pub fn generate_interface(iface: &InterfaceMeta, known_types: &HashSet<String>, 
     // Wrapper class
     out.push_str(&format!("export class {} {{\n", iface.name));
     out.push_str("    readonly _obj: DynWinRtValue;\n\n");
-    out.push_str("    constructor(obj: DynWinRtValue) {\n");
-    out.push_str("        this._obj = obj;\n");
-    out.push_str("    }\n");
+    if iface.generic_piid.is_some() {
+        // Parameterized interfaces need QI cast in constructor
+        out.push_str("    constructor(obj: DynWinRtValue) {\n");
+        out.push_str(&format!("        this._obj = obj.cast(IID_{});\n", iface.name));
+        out.push_str("    }\n");
+    } else {
+        out.push_str("    constructor(obj: DynWinRtValue) {\n");
+        out.push_str("        this._obj = obj;\n");
+        out.push_str("    }\n");
+    }
 
     // static from() — QI cast
     if !iface.iid.is_empty() {
@@ -620,16 +633,48 @@ pub fn generate_class(class: &ClassMeta, known_types: &HashSet<String>, delegate
         out.push_str("import { DynWinRtType, DynWinRtMethodSig, DynWinRtValue, DynWinRtArray, DynWinRtDelegate, WinGuid } from 'dynwinrt-js';\n");
     }
 
-    // Collection generics import
-    let collection_names = collect_used_generics_from_class(class);
-    for cname in &collection_names {
-        out.push_str(&format!("import {{ {} }} from './{}';\n", cname, cname));
+    // Collect delegate names from all interfaces of this class
+    let mut delegate_names: HashSet<String> = delegate_type_names.clone();
+    let all_ifaces: Vec<&InterfaceMeta> = class.default_interface.iter()
+        .chain(class.factory_interfaces.iter())
+        .chain(class.static_interfaces.iter())
+        .chain(class.required_interfaces.iter())
+        .collect();
+    for iface in &all_ifaces {
+        for method in &iface.methods {
+            for p in &method.params {
+                match &p.typ {
+                    TypeMeta::Delegate { name, .. } => { delegate_names.insert(name.clone()); }
+                    _ => {}
+                }
+                if method.is_event_add || method.is_event_remove || method.name.starts_with("put_") {
+                    if let TypeMeta::Parameterized { name, args, .. } = &p.typ {
+                        delegate_names.insert(crate::meta::make_parameterized_name(name, args));
+                    }
+                }
+            }
+        }
     }
 
-    // Type imports — only for types that have generated .ts files
+    // Collection generics import (skip delegates)
+    let collection_names = collect_used_generics_from_class(class);
+    for cname in &collection_names {
+        if !delegate_names.contains(cname) {
+            out.push_str(&format!("import {{ {} }} from './{}';\n", cname, cname));
+        }
+    }
+
+    // Import delegate IID + PARAM_TYPES for event methods
+    for dname in &delegate_names {
+        out.push_str(&format!(
+            "import {{ IID_{dname}, {dname}_PARAM_TYPES }} from './{dname}';\n",
+        ));
+    }
+
+    // Type imports — only for types that have generated .ts files (skip delegates)
     let imports = collect_type_imports(class);
     for (_ns, name, kind) in &imports {
-        if known_types.contains(name) {
+        if known_types.contains(name) && !delegate_names.contains(name) {
             out.push_str(&format_type_import(name, kind));
         }
     }

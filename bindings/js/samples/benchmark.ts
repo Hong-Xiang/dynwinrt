@@ -1,5 +1,8 @@
 /**
- * Benchmark: JS → static projection vs JS → dynwinrt (end-to-end)
+ * Benchmark: JS → C++/WinRT static projection vs JS → dynwinrt (end-to-end)
+ *
+ * Static path:  JS → node-addon-api → C++/WinRT → COM vtable
+ * Dynamic path: JS → napi-rs → dynwinrt (Rust + libffi) → COM vtable
  *
  * Groups:
  *   1. param_count  — 0, 1, 2 input params
@@ -18,9 +21,12 @@ import {
   DynWinRtMethodSig,
   DynWinRtStruct,
   WinGuid,
-  StaticBench,
   roInitialize,
 } from '../dist/index.js'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const CppBench = require('../static-bench/build/Release/static_bench.node')
 
 roInitialize(1)
 
@@ -86,7 +92,7 @@ const pvStatics = DynWinRtValue.activationFactory('Windows.Foundation.PropertyVa
 const geoFactory = DynWinRtValue.activationFactory('Windows.Devices.Geolocation.Geopoint').cast(geoFactoryIid)
 
 const testUrl = "https://example.com:8080/path?q=1"
-const staticUri = StaticBench.uriCreate(testUrl)
+const staticUri = CppBench.uriCreate(testUrl)
 const createUri = iUriFactory.methodByName("CreateUri")
 const dynUri = createUri.invoke(uriFactory, [DynWinRtValue.hstring(testUrl)]).cast(uriIid)
 
@@ -138,7 +144,9 @@ function printGroup(groupName: string, results: { name: string, perCall: number 
 // Benchmarks
 // ======================================================================
 
-console.log('=== JS End-to-End Benchmark: Static vs Dynamic ===')
+console.log('=== JS End-to-End Benchmark: C++/WinRT (static) vs dynwinrt (dynamic) ===')
+console.log(`Static:  JS → node-addon-api → C++/WinRT → COM`)
+console.log(`Dynamic: JS → napi-rs → dynwinrt (Rust + libffi) → COM`)
 console.log(`(all method handles and objects pre-created)\n`)
 
 // --- Group 1: Parameter Count ---
@@ -149,12 +157,12 @@ const cachedBase = DynWinRtValue.hstring("https://example.com")
 const cachedPath = DynWinRtValue.hstring("/path")
 
 printGroup('By param count (→ object out)', [
-  bench('0 in / static',        N_FAST, () => StaticBench.uriHostFromObj(staticUri)),
+  bench('0 in / static',        N_FAST, () => CppBench.uriHostFromObj(staticUri)),
   bench('0 in / dynamic',       N_FAST, () => mGetHost.invoke(dynUri, []).toString()),
-  bench('1 in / static',        N_SLOW, () => StaticBench.uriCombine(staticUri, "/rel")),
+  bench('1 in / static',        N_SLOW, () => CppBench.uriCombine(staticUri, "/rel")),
   bench('1 in / uncached',      N_SLOW, () => mCombineUri.invoke(dynUri, [DynWinRtValue.hstring("/rel")]).toString()),
   bench('1 in / cached',        N_SLOW, () => mCombineUri.invoke(dynUri, [cachedRel]).toString()),
-  bench('2 in / static',        N_SLOW, () => StaticBench.uriCreateWithRelative("https://example.com", "/path")),
+  bench('2 in / static',        N_SLOW, () => CppBench.uriCreateWithRelative("https://example.com", "/path")),
   bench('2 in / uncached',      N_SLOW, () => mCreateWithRelative.invoke(uriFactory, [
     DynWinRtValue.hstring("https://example.com"), DynWinRtValue.hstring("/path")])),
   bench('2 in / cached',        N_SLOW, () => mCreateWithRelative.invoke(uriFactory, [cachedBase, cachedPath])),
@@ -164,15 +172,15 @@ printGroup('By param count (→ object out)', [
 // Fixed: 1 in → 1 out (object), varying input type
 
 printGroup('By input type (1 in → object out)', [
-  bench('i32 / static',        N_SLOW, () => StaticBench.pvCreateI32(42)),
+  bench('i32 / static',        N_SLOW, () => CppBench.pvCreateI32(42)),
   bench('i32 / dynamic',       N_SLOW, () => mPvCreateI32.invoke(pvStatics, [DynWinRtValue.i32(42)])),
-  bench('f64 / static',        N_SLOW, () => StaticBench.pvCreateF64(3.14)),
+  bench('f64 / static',        N_SLOW, () => CppBench.pvCreateF64(3.14)),
   bench('f64 / dynamic',       N_SLOW, () => mPvCreateF64.invoke(pvStatics, [DynWinRtValue.f64(3.14)])),
-  bench('bool / static',       N_SLOW, () => StaticBench.pvCreateBool(true)),
+  bench('bool / static',       N_SLOW, () => CppBench.pvCreateBool(true)),
   bench('bool / dynamic',      N_SLOW, () => mPvCreateBool.invoke(pvStatics, [DynWinRtValue.boolValue(true)])),
-  bench('hstring / static',    N_SLOW, () => StaticBench.pvCreateString("hello")),
+  bench('hstring / static',    N_SLOW, () => CppBench.pvCreateString("hello")),
   bench('hstring / dynamic',   N_SLOW, () => mPvCreateStr.invoke(pvStatics, [DynWinRtValue.hstring("hello")])),
-  bench('struct 3×f64 / static',  N_SLOW, () => StaticBench.geopointCreate(47.6, -122.1, 100.0)),
+  bench('struct 3×f64 / static',  N_SLOW, () => CppBench.geopointCreate(47.6, -122.1, 100.0)),
   bench('struct 3×f64 / dynamic', N_SLOW, () => {
     const s = DynWinRtStruct.create(geoStructType)
     s.setF64(0, 47.6); s.setF64(1, -122.1); s.setF64(2, 100.0)
@@ -203,11 +211,11 @@ printGroup('Arg caching: 1 napi (cached) vs 2 napi (uncached)', [
 // Fixed: 0 in → 1 out getter on pre-created Uri, varying return type
 
 printGroup('By return type (0 in → getter)', [
-  bench('i32 / static',     N_FAST, () => StaticBench.uriPortFromObj(staticUri)),
+  bench('i32 / static',     N_FAST, () => CppBench.uriPortFromObj(staticUri)),
   bench('i32 / dynamic',    N_FAST, () => mGetPort.invoke(dynUri, []).toNumber()),
-  bench('bool / static',    N_FAST, () => StaticBench.uriSuspiciousFromObj(staticUri)),
+  bench('bool / static',    N_FAST, () => CppBench.uriSuspiciousFromObj(staticUri)),
   bench('bool / dynamic',   N_FAST, () => mGetSuspicious.invoke(dynUri, []).toBool()),
-  bench('hstring / static', N_FAST, () => StaticBench.uriHostFromObj(staticUri)),
+  bench('hstring / static', N_FAST, () => CppBench.uriHostFromObj(staticUri)),
   bench('hstring / dynamic',N_FAST, () => mGetHost.invoke(dynUri, []).toString()),
 ])
 
@@ -222,7 +230,7 @@ printGroup('Method handle caching', [
 
 printGroup(`Batch ${N_BATCH}× create Uri + read Host`, [
   bench('static', 100, () => {
-    for (let i = 0; i < N_BATCH; i++) StaticBench.uriGetHost(`https://example.com/${i}`)
+    for (let i = 0; i < N_BATCH; i++) CppBench.uriGetHost(`https://example.com/${i}`)
   }),
   bench('dynamic', 100, () => {
     for (let i = 0; i < N_BATCH; i++) {

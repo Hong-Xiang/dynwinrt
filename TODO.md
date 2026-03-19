@@ -34,6 +34,7 @@
 - [ ] **Nullable / IReference\<T\> return handling**: Null COM pointer returns `Null` variant; JS side needs better null-check patterns
 - [ ] **Struct codegen deduplication**: `DynWinRtType.registerStruct(...)` is inlined in every method signature that uses the struct; should generate a shared struct definition file and import it (runtime is idempotent, but codegen is verbose)
 - [ ] **Exclusive interface codegen**: Methods on exclusive interfaces (e.g. `IXmlDocumentIO.LoadXml`) are not generated; need to resolve all interfaces a class implements, not just the default one
+- [ ] **Codegen missing dependency warning**: When a referenced type is not found in any loaded .winmd, `resolve_named_type` silently returns `TypeMeta::Interface` with an empty IID. Generated code contains `WinGuid.parse('')` which crashes at runtime. Should emit a warning or error at generation time.
 
 ## P3 - Developer Experience
 

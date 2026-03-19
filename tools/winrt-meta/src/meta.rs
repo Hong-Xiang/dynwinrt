@@ -41,6 +41,10 @@ pub struct InterfaceMeta {
     pub namespace: String,
     pub iid: String,
     pub methods: Vec<MethodMeta>,
+    /// For parameterized interfaces: the PIID (generic IID before instantiation).
+    pub generic_piid: Option<String>,
+    /// For parameterized interfaces: the type arguments used to instantiate.
+    pub generic_args: Vec<TypeMeta>,
 }
 
 /// How an interface relates to a RuntimeClass.
@@ -674,11 +678,18 @@ fn parse_interface_methods(
         });
     }
 
+    let (generic_piid, generic_args_vec) = if !generic_args.is_empty() {
+        (Some(iid.to_string()), generic_args.to_vec())
+    } else {
+        (None, Vec::new())
+    };
     Some(InterfaceMeta {
         name: output_name.to_string(),
         namespace: namespace.to_string(),
         iid: iid.to_string(),
         methods,
+        generic_piid,
+        generic_args: generic_args_vec,
     })
 }
 
