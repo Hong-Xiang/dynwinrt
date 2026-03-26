@@ -92,16 +92,22 @@ unsafe fn write_item_out(is_value_type: bool, raw: usize, result: *mut *mut c_vo
 // SingleThreadedVector
 // ======================================================================
 
-/// A dynamically-constructed WinRT IVector<T> + IIterable<T> COM object.
+/// A dynamically-constructed WinRT IVector<T> + IVectorView<T> + IIterable<T> COM object.
 ///
 /// Stores items as raw `usize` values. For reference types (COM objects),
 /// each usize is a raw IUnknown pointer with manual AddRef/Release.
 /// For value types (structs ≤ pointer size), each usize holds the struct
 /// bytes directly — no refcounting needed.
+///
+/// Implements three interfaces (like C++/WinRT's single_threaded_vector):
+/// - IIterable<T>: First() for iteration
+/// - IVector<T>: mutable collection operations
+/// - IVectorView<T>: read-only live view over the same data
 #[repr(C)]
 struct SingleThreadedVector {
     vtable_iterable: *const IterableVtbl,
     vtable_vector: *const VectorVtbl,
+    vtable_view: *const VectorViewVtbl,
     ref_count: windows_core::imp::RefCount,
     items: RefCell<Vec<usize>>,
     is_value_type: bool,
@@ -151,8 +157,25 @@ impl SingleThreadedVector {
         replace_all: Self::replace_all,
     };
 
-    dual_vtable_com!(iterable, vector, vector);
-    inspectable_stubs!(iterable, vector);
+    const VIEW_VTBL: VectorViewVtbl = VectorViewVtbl {
+        base: IInspectableVtbl {
+            base: windows_core::IUnknown_Vtbl {
+                QueryInterface: Self::qi_view,
+                AddRef: Self::add_ref_view,
+                Release: Self::release_view,
+            },
+            get_iids: Self::get_iids_view,
+            get_runtime_class_name: Self::get_runtime_class_name_view,
+            get_trust_level: Self::get_trust_level_view,
+        },
+        get_at: Self::view_get_at,
+        get_size: Self::view_get_size,
+        index_of: Self::view_index_of,
+        get_many: Self::view_get_many,
+    };
+
+    triple_vtable_com!(iterable, vector, view, vector, vector_view);
+    inspectable_stubs!(iterable, vector, view);
 
     // ------------------------------------------------------------------
     // IIterable<T>
@@ -214,7 +237,10 @@ impl SingleThreadedVector {
             items.iter().map(|&raw| com_to_usize(raw as *mut c_void)).collect()
         };
         let view = SingleThreadedVectorView::create(snapshot, me.is_value_type, me.iids.clone());
-        *result = view.into_raw();
+        // WinRT ABI: get_view must return an IVectorView pointer (second vtable),
+        // not the identity/IIterable pointer (first vtable).
+        let identity = view.into_raw();
+        *result = (identity as *const *const c_void).add(1) as *mut c_void;
         S_OK
     }
 
@@ -358,6 +384,64 @@ impl SingleThreadedVector {
             let val = if me.is_value_type { raw as usize } else { com_to_usize(raw) };
             items.push(val);
         }
+        S_OK
+    }
+
+    // ------------------------------------------------------------------
+    // IVectorView<T> — live read-only view over the same items
+    // ------------------------------------------------------------------
+
+    unsafe extern "system" fn view_get_at(
+        this: *mut c_void, index: u32, result: *mut *mut c_void,
+    ) -> HRESULT {
+        let me = Self::from_view_ptr(this);
+        let items = me.items.borrow();
+        if (index as usize) >= items.len() { return E_BOUNDS; }
+        write_item_out(me.is_value_type, items[index as usize], result);
+        S_OK
+    }
+
+    unsafe extern "system" fn view_get_size(
+        this: *mut c_void, result: *mut u32,
+    ) -> HRESULT {
+        let me = Self::from_view_ptr(this);
+        *result = me.items.borrow().len() as u32;
+        S_OK
+    }
+
+    unsafe extern "system" fn view_index_of(
+        this: *mut c_void, value: *mut c_void, index: *mut u32, found: *mut bool,
+    ) -> HRESULT {
+        let me = Self::from_view_ptr(this);
+        let items = me.items.borrow();
+        let needle = value as usize;
+        for (i, &item) in items.iter().enumerate() {
+            if item == needle {
+                *index = i as u32;
+                *found = true;
+                return S_OK;
+            }
+        }
+        *index = 0;
+        *found = false;
+        S_OK
+    }
+
+    unsafe extern "system" fn view_get_many(
+        this: *mut c_void, start_index: u32, capacity: u32, items_out: *mut *mut c_void, actual: *mut u32,
+    ) -> HRESULT {
+        let me = Self::from_view_ptr(this);
+        let items = me.items.borrow();
+        let start = start_index as usize;
+        if start > items.len() {
+            *actual = 0;
+            return S_OK;
+        }
+        let count = std::cmp::min(capacity as usize, items.len() - start);
+        for i in 0..count {
+            write_item_out(me.is_value_type, items[start + i], items_out.add(i));
+        }
+        *actual = count as u32;
         S_OK
     }
 }
@@ -657,6 +741,7 @@ fn new_vector(items: Vec<usize>, is_value_type: bool, iids: VectorIids) -> IUnkn
     let vector = Box::new(SingleThreadedVector {
         vtable_iterable: &SingleThreadedVector::ITERABLE_VTBL,
         vtable_vector: &SingleThreadedVector::VECTOR_VTBL,
+        vtable_view: &SingleThreadedVector::VIEW_VTBL,
         ref_count: windows_core::imp::RefCount::new(1),
         items: RefCell::new(items),
         is_value_type,
@@ -835,5 +920,128 @@ mod tests {
 
         let _ = unsafe { IUnknown::from_raw(iterator_ptr) };
         let _ = unsafe { IUnknown::from_raw(iter_iface_ptr) };
+    }
+
+    #[test]
+    fn test_vector_qi_vector_view() {
+        // DynVector must support QI for IVectorView (like C++/WinRT's single_threaded_vector)
+        use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+
+        let table = MetadataTable::new();
+        let iids = table.vector_iids(&table.object());
+
+        let uri = windows::Foundation::Uri::CreateUri(windows_core::h!("https://example.com")).unwrap();
+        let items: Vec<IUnknown> = vec![uri.cast().unwrap()];
+        let vector = create_vector(items, iids.clone());
+
+        // QI for IVectorView should succeed
+        let mut view_ptr = std::ptr::null_mut();
+        unsafe { vector.query(&iids.vector_view, &mut view_ptr) }.ok().unwrap();
+        assert!(!view_ptr.is_null());
+
+        // Read through IVectorView vtable
+        let vtbl = unsafe { *(view_ptr as *const *const VectorViewVtbl) };
+        let mut size: u32 = 0;
+        let hr = unsafe { ((*vtbl).get_size)(view_ptr, &mut size) };
+        assert_eq!(hr, S_OK);
+        assert_eq!(size, 1);
+
+        // GetAt through IVectorView
+        let mut item_ptr: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe { ((*vtbl).get_at)(view_ptr, 0, &mut item_ptr) };
+        assert_eq!(hr, S_OK);
+        assert!(!item_ptr.is_null());
+        let _ = unsafe { IUnknown::from_raw(item_ptr) };
+
+        let _ = unsafe { IUnknown::from_raw(view_ptr) };
+    }
+
+    #[test]
+    fn test_vector_get_view_returns_vector_view_ptr() {
+        // get_view() must return an IVectorView pointer, not IIterable.
+        // This was the root cause of ImageObjectExtractor E_NOINTERFACE.
+        use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+
+        let table = MetadataTable::new();
+        let iids = table.vector_iids(&table.object());
+
+        let uri = windows::Foundation::Uri::CreateUri(windows_core::h!("https://example.com")).unwrap();
+        let items: Vec<IUnknown> = vec![uri.cast().unwrap()];
+        let vector = create_vector(items, iids.clone());
+
+        // QI to IVector to call get_view
+        let mut vec_ptr = std::ptr::null_mut();
+        unsafe { vector.query(&iids.vector, &mut vec_ptr) }.ok().unwrap();
+        let vtbl = unsafe { *(vec_ptr as *const *const VectorVtbl) };
+
+        // Call get_view
+        let mut view_ptr: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe { ((*vtbl).get_view)(vec_ptr, &mut view_ptr) };
+        assert_eq!(hr, S_OK);
+        assert!(!view_ptr.is_null());
+
+        // The returned pointer MUST be usable as IVectorView directly (no QI needed)
+        let view_vtbl = unsafe { *(view_ptr as *const *const VectorViewVtbl) };
+        let mut size: u32 = 0;
+        let hr = unsafe { ((*view_vtbl).get_size)(view_ptr, &mut size) };
+        assert_eq!(hr, S_OK);
+        assert_eq!(size, 1);
+
+        // QI the view for IUnknown should also work (identity pointer)
+        let view_unk = unsafe { IUnknown::from_raw_borrowed(&view_ptr) }.unwrap();
+        let mut unk_ptr: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe { view_unk.query(&IUnknown::IID, &mut unk_ptr) };
+        assert_eq!(hr, S_OK);
+        assert!(!unk_ptr.is_null());
+
+        // Release all
+        let _ = unsafe { IUnknown::from_raw(unk_ptr) };
+        let _ = unsafe { IUnknown::from_raw(view_ptr) };
+        let _ = unsafe { IUnknown::from_raw(vec_ptr) };
+    }
+
+    #[test]
+    fn test_vector_get_view_ref_counting() {
+        // Verify ref counting: get_view returns ref=1, Release frees correctly.
+        use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+
+        let table = MetadataTable::new();
+        let iids = table.vector_iids(&table.object());
+
+        let vector = create_vector(Vec::new(), iids.clone());
+
+        let mut vec_ptr = std::ptr::null_mut();
+        unsafe { vector.query(&iids.vector, &mut vec_ptr) }.ok().unwrap();
+        let vtbl = unsafe { *(vec_ptr as *const *const VectorVtbl) };
+
+        // Call get_view twice — each should return an independent VectorView
+        let mut view1: *mut c_void = std::ptr::null_mut();
+        let mut view2: *mut c_void = std::ptr::null_mut();
+        unsafe { ((*vtbl).get_view)(vec_ptr, &mut view1) };
+        unsafe { ((*vtbl).get_view)(vec_ptr, &mut view2) };
+        assert!(!view1.is_null());
+        assert!(!view2.is_null());
+        assert_ne!(view1, view2); // Different snapshots
+
+        // Both should work independently
+        let vtbl1 = unsafe { *(view1 as *const *const VectorViewVtbl) };
+        let vtbl2 = unsafe { *(view2 as *const *const VectorViewVtbl) };
+        let mut s1: u32 = 99;
+        let mut s2: u32 = 99;
+        unsafe { ((*vtbl1).get_size)(view1, &mut s1) };
+        unsafe { ((*vtbl2).get_size)(view2, &mut s2) };
+        assert_eq!(s1, 0);
+        assert_eq!(s2, 0);
+
+        // Release both via the view pointer — should not crash (no use-after-free).
+        // IUnknown::from_raw takes ownership; drop calls Release through the vtable at *view_ptr.
+        // Since view_ptr is the IVectorView vtable (second slot), Release goes through
+        // dual_vtable_com's release_view, which correctly finds the base and frees.
+        drop(unsafe { IUnknown::from_raw(view1) });
+        drop(unsafe { IUnknown::from_raw(view2) });
+        let _ = unsafe { IUnknown::from_raw(vec_ptr) };
     }
 }

@@ -100,6 +100,152 @@ macro_rules! inspectable_stubs {
     };
 }
 
+/// Generate triple-vtable COM boilerplate for structs with three vtable pointers
+/// (first = iterable, second = vector, third = vector_view).
+///
+/// The struct layout must be: vtable_first, vtable_second, vtable_third, ...
+macro_rules! triple_vtable_com {
+    ($first_suffix:ident, $second_suffix:ident, $third_suffix:ident,
+     $second_iid_field:ident, $third_iid_field:ident) => {
+        paste::paste! {
+            /// Recover &Self from the first (iterable) vtable pointer.
+            unsafe fn [<from_ $first_suffix _ptr>](this: *mut ::core::ffi::c_void) -> &'static Self {
+                &*(this as *const Self)
+            }
+
+            /// Recover &Self from the second vtable pointer.
+            unsafe fn [<from_ $second_suffix _ptr>](this: *mut ::core::ffi::c_void) -> &'static Self {
+                let base = (this as *const *const ::core::ffi::c_void).sub(1) as *const Self;
+                &*base
+            }
+
+            /// Recover &Self from the third vtable pointer.
+            unsafe fn [<from_ $third_suffix _ptr>](this: *mut ::core::ffi::c_void) -> &'static Self {
+                let base = (this as *const *const ::core::ffi::c_void).sub(2) as *const Self;
+                &*base
+            }
+
+            /// Get the first (identity) interface pointer.
+            fn [<as_ $first_suffix _ptr>](this: *const Self) -> *mut ::core::ffi::c_void {
+                this as *mut ::core::ffi::c_void
+            }
+
+            // -- IUnknown for first interface --
+
+            unsafe extern "system" fn [<qi_ $first_suffix>](
+                this: *mut ::core::ffi::c_void,
+                iid: *const ::windows_core::GUID,
+                ppv: *mut *mut ::core::ffi::c_void,
+            ) -> ::windows_core::HRESULT {
+                Self::qi_impl(Self::[<from_ $first_suffix _ptr>](this), this, iid, ppv)
+            }
+
+            unsafe extern "system" fn [<add_ref_ $first_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                Self::[<from_ $first_suffix _ptr>](this).ref_count.add_ref()
+            }
+
+            unsafe extern "system" fn [<release_ $first_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                let me = Self::[<from_ $first_suffix _ptr>](this);
+                let remaining = me.ref_count.release();
+                if remaining == 0 {
+                    drop(Box::from_raw(this as *mut Self));
+                }
+                remaining
+            }
+
+            // -- IUnknown for second interface --
+
+            unsafe extern "system" fn [<qi_ $second_suffix>](
+                this: *mut ::core::ffi::c_void,
+                iid: *const ::windows_core::GUID,
+                ppv: *mut *mut ::core::ffi::c_void,
+            ) -> ::windows_core::HRESULT {
+                let me = Self::[<from_ $second_suffix _ptr>](this);
+                Self::qi_impl(me, Self::[<as_ $first_suffix _ptr>](me as *const Self), iid, ppv)
+            }
+
+            unsafe extern "system" fn [<add_ref_ $second_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                Self::[<from_ $second_suffix _ptr>](this).ref_count.add_ref()
+            }
+
+            unsafe extern "system" fn [<release_ $second_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                let me = Self::[<from_ $second_suffix _ptr>](this);
+                let remaining = me.ref_count.release();
+                if remaining == 0 {
+                    let base = Self::[<as_ $first_suffix _ptr>](me as *const Self);
+                    drop(Box::from_raw(base as *mut Self));
+                }
+                remaining
+            }
+
+            // -- IUnknown for third interface --
+
+            unsafe extern "system" fn [<qi_ $third_suffix>](
+                this: *mut ::core::ffi::c_void,
+                iid: *const ::windows_core::GUID,
+                ppv: *mut *mut ::core::ffi::c_void,
+            ) -> ::windows_core::HRESULT {
+                let me = Self::[<from_ $third_suffix _ptr>](this);
+                Self::qi_impl(me, Self::[<as_ $first_suffix _ptr>](me as *const Self), iid, ppv)
+            }
+
+            unsafe extern "system" fn [<add_ref_ $third_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                Self::[<from_ $third_suffix _ptr>](this).ref_count.add_ref()
+            }
+
+            unsafe extern "system" fn [<release_ $third_suffix>](this: *mut ::core::ffi::c_void) -> u32 {
+                let me = Self::[<from_ $third_suffix _ptr>](this);
+                let remaining = me.ref_count.release();
+                if remaining == 0 {
+                    let base = Self::[<as_ $first_suffix _ptr>](me as *const Self);
+                    drop(Box::from_raw(base as *mut Self));
+                }
+                remaining
+            }
+
+            // -- Shared QI --
+
+            unsafe fn qi_impl(
+                me: &Self,
+                identity: *mut ::core::ffi::c_void,
+                iid: *const ::windows_core::GUID,
+                ppv: *mut *mut ::core::ffi::c_void,
+            ) -> ::windows_core::HRESULT {
+                if iid.is_null() || ppv.is_null() {
+                    return ::windows_core::HRESULT(-2147467261); // E_INVALIDARG
+                }
+                let iid = &*iid;
+                if *iid == ::windows_core::IUnknown::IID
+                    || *iid == ::windows_core::IInspectable::IID
+                    || *iid == ::windows_core::imp::IAgileObject::IID
+                    || *iid == me.iids.iterable
+                {
+                    *ppv = identity;
+                    me.ref_count.add_ref();
+                    $crate::com_helpers::S_OK
+                } else if *iid == me.iids.$second_iid_field {
+                    *ppv = (identity as *const *const ::core::ffi::c_void).add(1) as *mut ::core::ffi::c_void;
+                    me.ref_count.add_ref();
+                    $crate::com_helpers::S_OK
+                } else if *iid == me.iids.$third_iid_field {
+                    *ppv = (identity as *const *const ::core::ffi::c_void).add(2) as *mut ::core::ffi::c_void;
+                    me.ref_count.add_ref();
+                    $crate::com_helpers::S_OK
+                } else if *iid == ::windows_core::imp::IMarshal::IID {
+                    me.ref_count.add_ref();
+                    ::windows_core::imp::marshaler(
+                        ::core::mem::transmute(identity),
+                        ppv,
+                    )
+                } else {
+                    *ppv = ::std::ptr::null_mut();
+                    $crate::com_helpers::E_NOINTERFACE
+                }
+            }
+        }
+    };
+}
+
 /// Generate dual-vtable COM boilerplate for structs with two vtable pointers
 /// (first = iterable, second = the main interface).
 ///
