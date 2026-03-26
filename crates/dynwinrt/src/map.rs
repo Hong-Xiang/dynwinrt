@@ -239,7 +239,10 @@ impl SingleThreadedMap {
         let me = Self::from_map_ptr(this);
         let snapshot = me.entries.borrow().clone();
         let view = SingleThreadedMapView::create(snapshot, me.iids.clone());
-        *result = view.into_raw();
+        // WinRT ABI: get_view must return an IMapView pointer (second vtable),
+        // not the identity/IIterable pointer (first vtable).
+        let identity = view.into_raw();
+        *result = (identity as *const *const c_void).add(1) as *mut c_void;
         S_OK
     }
 
