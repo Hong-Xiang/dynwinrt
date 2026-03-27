@@ -145,7 +145,22 @@ fn main() {
                         std::process::exit(1);
                     }
                 };
-                let _ = generate_for_types(&winmd, output_dir, classes, Vec::new(), Vec::new(), &lang);
+                let _ = generate_for_types(&winmd, output_dir, classes.clone(), Vec::new(), Vec::new(), &lang);
+
+                // Append to existing index file if present
+                let index_path = output_dir.join(format!("index.{}", ext));
+                if index_path.exists() {
+                    let deps = meta::resolve_dependencies(&winmd, &classes, &[], &[]);
+                    let all_classes = [classes.as_slice(), deps.classes.as_slice()].concat();
+                    let existing = fs::read_to_string(&index_path).expect("Failed to read index file");
+                    let updated = if lang == "js" {
+                        javascript::append_to_index(&existing, &all_classes, &deps.interfaces, &deps.enums)
+                    } else {
+                        typescript::append_to_index(&existing, &all_classes, &deps.interfaces, &deps.enums)
+                    };
+                    fs::write(&index_path, &updated).expect("Failed to update index file");
+                    println!("Updated {}", index_path.display());
+                }
             } else {
                 // Determine which namespaces to generate
                 let namespaces = match namespace {

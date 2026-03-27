@@ -456,6 +456,9 @@ fn collect_all_refs_from_classes(
             collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
         }
         for iface in &c.required_interfaces {
+            if !iface.name.is_empty() && !known.contains(&iface.name) {
+                named_out.push((iface.namespace.clone(), iface.name.clone(), "interface"));
+            }
             collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
         }
     }
@@ -688,7 +691,7 @@ fn parse_interface_methods(
         let method_name = overload_name.unwrap_or_else(|| method.name().to_string());
 
         let mut params = Vec::new();
-        let param_defs: Vec<_> = method.params().collect();
+        let param_defs: Vec<_> = method.params().filter(|p| p.sequence() > 0).collect();
         for (j, param_def) in param_defs.iter().enumerate() {
             if j < sig.types.len() {
                 let typ = map_winmd_type_with_generics(&sig.types[j], index, generic_args);
