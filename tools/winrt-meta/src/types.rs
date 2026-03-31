@@ -1,3 +1,20 @@
+/// The kind of a named WinRT type reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TypeKind {
+    Class,
+    Enum,
+    Interface,
+}
+
+/// A reference to a named WinRT type (namespace + name + kind).
+/// Replaces raw `(String, String, &str)` tuples for type-safe dependency tracking.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeRef {
+    pub namespace: String,
+    pub name: String,
+    pub kind: TypeKind,
+}
+
 /// Describes a WinRT type as extracted from WinMD metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeMeta {
@@ -94,5 +111,67 @@ impl TypeMeta {
             TypeMeta::AsyncOperation(t) | TypeMeta::AsyncOperationWithProgress(t, _) => Some(t),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_async_returns_true_for_async_types() {
+        assert!(TypeMeta::AsyncAction.is_async());
+        assert!(TypeMeta::AsyncOperation(Box::new(TypeMeta::String)).is_async());
+        assert!(TypeMeta::AsyncActionWithProgress(Box::new(TypeMeta::I32)).is_async());
+        assert!(TypeMeta::AsyncOperationWithProgress(
+            Box::new(TypeMeta::String),
+            Box::new(TypeMeta::U32),
+        ).is_async());
+    }
+
+    #[test]
+    fn is_async_returns_false_for_non_async_types() {
+        assert!(!TypeMeta::Bool.is_async());
+        assert!(!TypeMeta::String.is_async());
+        assert!(!TypeMeta::I32.is_async());
+        assert!(!TypeMeta::Object.is_async());
+        assert!(!TypeMeta::Interface {
+            namespace: "N".into(), name: "I".into(), iid: "".into(),
+        }.is_async());
+    }
+
+    #[test]
+    fn async_result_type_extracts_inner() {
+        let inner = TypeMeta::String;
+        let op = TypeMeta::AsyncOperation(Box::new(inner.clone()));
+        assert_eq!(op.async_result_type(), Some(&inner));
+
+        let progress = TypeMeta::U32;
+        let op_wp = TypeMeta::AsyncOperationWithProgress(
+            Box::new(inner.clone()),
+            Box::new(progress),
+        );
+        assert_eq!(op_wp.async_result_type(), Some(&inner));
+    }
+
+    #[test]
+    fn async_result_type_returns_none_for_non_operations() {
+        assert_eq!(TypeMeta::AsyncAction.async_result_type(), None);
+        assert_eq!(TypeMeta::AsyncActionWithProgress(Box::new(TypeMeta::I32)).async_result_type(), None);
+        assert_eq!(TypeMeta::String.async_result_type(), None);
+    }
+
+    #[test]
+    fn type_ref_equality_and_hash() {
+        let r1 = TypeRef { namespace: "A".into(), name: "B".into(), kind: TypeKind::Class };
+        let r2 = TypeRef { namespace: "A".into(), name: "B".into(), kind: TypeKind::Class };
+        let r3 = TypeRef { namespace: "A".into(), name: "B".into(), kind: TypeKind::Interface };
+        assert_eq!(r1, r2);
+        assert_ne!(r1, r3);
+
+        let mut set = std::collections::HashSet::new();
+        set.insert(r1.clone());
+        assert!(set.contains(&r2));
+        assert!(!set.contains(&r3));
     }
 }

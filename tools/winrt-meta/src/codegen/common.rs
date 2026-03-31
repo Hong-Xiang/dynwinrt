@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use crate::meta::{ClassMeta, InterfaceMeta, MethodMeta, ParamDirection};
-use crate::types::TypeMeta;
+use crate::types::{TypeKind, TypeMeta, TypeRef};
 
 /// Empty set passed as `deferred` for codegen (no circular dep handling needed).
 pub(crate) static NO_DEFERRED: LazyLock<HashSet<String>> = LazyLock::new(HashSet::new);
@@ -45,16 +45,12 @@ fn collect_used_structs_from_type(typ: &TypeMeta, seen: &mut HashSet<String>, re
 pub(crate) fn collect_used_structs_from_class(class: &ClassMeta) -> Vec<TypeMeta> {
     let mut seen = HashSet::new();
     let mut result = Vec::new();
-    fn visit_methods(methods: &[MethodMeta], seen: &mut HashSet<String>, result: &mut Vec<TypeMeta>) {
-        for m in methods {
-            for p in &m.params { collect_used_structs_from_type(&p.typ, seen, result); }
-            if let Some(ref rt) = m.return_type { collect_used_structs_from_type(rt, seen, result); }
+    for iface in class.all_interfaces() {
+        for m in &iface.methods {
+            for p in &m.params { collect_used_structs_from_type(&p.typ, &mut seen, &mut result); }
+            if let Some(ref rt) = m.return_type { collect_used_structs_from_type(rt, &mut seen, &mut result); }
         }
     }
-    if let Some(ref iface) = class.default_interface { visit_methods(&iface.methods, &mut seen, &mut result); }
-    for iface in &class.factory_interfaces { visit_methods(&iface.methods, &mut seen, &mut result); }
-    for iface in &class.static_interfaces { visit_methods(&iface.methods, &mut seen, &mut result); }
-    for iface in &class.required_interfaces { visit_methods(&iface.methods, &mut seen, &mut result); }
     result
 }
 
@@ -406,9 +402,11 @@ pub(crate) fn convert_return(expr: &str, return_type: Option<&TypeMeta>, is_asyn
 // Interface registration helper
 // ======================================================================
 
-pub(crate) fn generate_interface_registration(iface: &InterfaceMeta) -> String {
+/// Generate a `const <var_name> = DynWinRtType.registerInterface(...)` block.
+/// `var_name` controls the JS variable name (e.g. `"_IFoo"` for class-internal use).
+pub(crate) fn generate_interface_registration(iface: &InterfaceMeta, var_name: &str) -> String {
     let mut out = String::new();
-    out.push_str(&format!("const {} = DynWinRtType.registerInterface(\n", iface.name));
+    out.push_str(&format!("const {} = DynWinRtType.registerInterface(\n", var_name));
     out.push_str(&format!("    \"{}\", IID_{})\n", iface.name, iface.name));
     for method in &iface.methods {
         out.push_str(&format!(
@@ -435,6 +433,12 @@ pub(crate) fn trim_trailing_newline_add_semicolon(out: &mut String) {
 /// Collect the set of known generic collection names used in method signatures.
 /// Returns e.g. ["IVectorView", "IMap"] for import generation.
 pub(crate) fn collect_used_generics_from_methods(methods: &[MethodMeta]) -> Vec<String> {
+    let refs: Vec<&MethodMeta> = methods.iter().collect();
+    collect_used_generics_from_methods_inner(&refs)
+}
+
+/// Shared implementation for collecting generic names from method references.
+fn collect_used_generics_from_methods_inner(methods: &[&MethodMeta]) -> Vec<String> {
     let mut names: HashSet<String> = HashSet::new();
     fn visit(typ: &TypeMeta, names: &mut HashSet<String>) {
         match typ {
@@ -459,145 +463,78 @@ pub(crate) fn collect_used_generics_from_methods(methods: &[MethodMeta]) -> Vec<
 
 /// Collect all used generic names from a class (all its interfaces).
 pub(crate) fn collect_used_generics_from_class(class: &ClassMeta) -> Vec<String> {
-    let mut all_methods: Vec<&MethodMeta> = Vec::new();
-    if let Some(ref iface) = class.default_interface {
-        all_methods.extend(&iface.methods);
-    }
-    for iface in &class.factory_interfaces { all_methods.extend(&iface.methods); }
-    for iface in &class.static_interfaces { all_methods.extend(&iface.methods); }
-    for iface in &class.required_interfaces { all_methods.extend(&iface.methods); }
-
-    let mut names: HashSet<String> = HashSet::new();
-    fn visit2(typ: &TypeMeta, names: &mut HashSet<String>) {
-        match typ {
-            TypeMeta::Parameterized { name, args, .. } => {
-                names.insert(crate::meta::make_parameterized_name(name, args));
-                for arg in args { visit2(arg, names); }
-            }
-            TypeMeta::AsyncOperation(inner) | TypeMeta::AsyncActionWithProgress(inner) => visit2(inner, names),
-            TypeMeta::AsyncOperationWithProgress(r, p) => { visit2(r, names); visit2(p, names); }
-            TypeMeta::Array(inner) => visit2(inner, names),
-            _ => {}
-        }
-    }
-    for m in &all_methods {
-        for p in &m.params { visit2(&p.typ, &mut names); }
-        if let Some(ref rt) = m.return_type { visit2(rt, &mut names); }
-    }
-    let mut sorted: Vec<String> = names.into_iter().collect();
-    sorted.sort();
-    sorted
+    let all_methods: Vec<&MethodMeta> = class.all_interfaces()
+        .flat_map(|iface| &iface.methods)
+        .collect();
+    // Reuse the same visitor logic as collect_used_generics_from_methods
+    collect_used_generics_from_methods_inner(&all_methods)
 }
 
 // ======================================================================
 // Import collection helpers
 // ======================================================================
 
-/// Collect type references from an interface for import generation.
-/// Returns (namespace, name, kind) triples.
-pub(crate) fn collect_iface_type_imports(iface: &InterfaceMeta) -> HashSet<(String, String, String)> {
-    let mut imports: HashSet<(String, String, String)> = HashSet::new();
-    let self_name = &iface.name;
-
-    fn visit_type(typ: &TypeMeta, self_name: &str, imports: &mut HashSet<(String, String, String)>) {
-        match typ {
-            TypeMeta::RuntimeClass { namespace, name, .. } if name != self_name => {
-                imports.insert((namespace.clone(), name.clone(), "class".into()));
-            }
-            TypeMeta::Interface { namespace, name, .. } if name != self_name => {
-                imports.insert((namespace.clone(), name.clone(), "interface".into()));
-            }
-            TypeMeta::Enum { namespace, name, .. } => {
-                imports.insert((namespace.clone(), name.clone(), "enum".into()));
-            }
-            TypeMeta::AsyncOperation(inner) | TypeMeta::AsyncActionWithProgress(inner) => {
-                visit_type(inner, self_name, imports);
-            }
-            TypeMeta::AsyncOperationWithProgress(result, progress) => {
-                visit_type(result, self_name, imports);
-                visit_type(progress, self_name, imports);
-            }
-            TypeMeta::Struct { fields, .. } => {
-                for f in fields { visit_type(&f.typ, self_name, imports); }
-            }
-            TypeMeta::Array(inner) => visit_type(inner, self_name, imports),
-            TypeMeta::Parameterized { args, .. } => {
-                for arg in args { visit_type(arg, self_name, imports); }
-            }
-            _ => {}
+/// Recursively collect named type references from a TypeMeta tree.
+/// `self_name` is excluded from results (the type being generated).
+/// `include_self_interfaces` controls whether Interface types with the same name
+/// as self_name are included (needed for class imports, not for interface imports).
+fn visit_type_for_imports(
+    typ: &TypeMeta,
+    self_name: &str,
+    include_self_interfaces: bool,
+    imports: &mut HashSet<TypeRef>,
+) {
+    match typ {
+        TypeMeta::RuntimeClass { namespace, name, .. } if name != self_name => {
+            imports.insert(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Class });
         }
+        TypeMeta::Interface { namespace, name, .. } => {
+            if name != self_name || include_self_interfaces {
+                imports.insert(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Interface });
+            }
+        }
+        TypeMeta::Enum { namespace, name, .. } => {
+            imports.insert(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Enum });
+        }
+        TypeMeta::AsyncOperation(inner) | TypeMeta::AsyncActionWithProgress(inner) => {
+            visit_type_for_imports(inner, self_name, include_self_interfaces, imports);
+        }
+        TypeMeta::AsyncOperationWithProgress(result, progress) => {
+            visit_type_for_imports(result, self_name, include_self_interfaces, imports);
+            visit_type_for_imports(progress, self_name, include_self_interfaces, imports);
+        }
+        TypeMeta::Struct { fields, .. } => {
+            for f in fields { visit_type_for_imports(&f.typ, self_name, include_self_interfaces, imports); }
+        }
+        TypeMeta::Array(inner) => visit_type_for_imports(inner, self_name, include_self_interfaces, imports),
+        TypeMeta::Parameterized { args, .. } => {
+            for arg in args { visit_type_for_imports(arg, self_name, include_self_interfaces, imports); }
+        }
+        _ => {}
     }
+}
 
-    for m in &iface.methods {
-        for p in &m.params { visit_type(&p.typ, self_name, &mut imports); }
-        if let Some(ref rt) = m.return_type { visit_type(rt, self_name, &mut imports); }
+/// Collect type imports from methods using the unified visitor.
+fn collect_methods_type_imports(methods: &[MethodMeta], self_name: &str, include_self_interfaces: bool, imports: &mut HashSet<TypeRef>) {
+    for m in methods {
+        for p in &m.params { visit_type_for_imports(&p.typ, self_name, include_self_interfaces, imports); }
+        if let Some(ref rt) = m.return_type { visit_type_for_imports(rt, self_name, include_self_interfaces, imports); }
     }
+}
+
+/// Collect type references from an interface for import generation.
+pub(crate) fn collect_iface_type_imports(iface: &InterfaceMeta) -> HashSet<TypeRef> {
+    let mut imports = HashSet::new();
+    collect_methods_type_imports(&iface.methods, &iface.name, false, &mut imports);
     imports
 }
 
 /// Collect type references from a class for import generation.
-/// Returns (namespace, name, kind) triples.
-pub(crate) fn collect_type_imports(class: &ClassMeta) -> HashSet<(String, String, String)> {
-    let mut imports: HashSet<(String, String, String)> = HashSet::new();
-    let class_name = &class.name;
-
-    fn visit_type(typ: &TypeMeta, class_name: &str, imports: &mut HashSet<(String, String, String)>) {
-        match typ {
-            TypeMeta::RuntimeClass { namespace, name, .. } if name != class_name => {
-                imports.insert((namespace.clone(), name.clone(), "class".into()));
-            }
-            TypeMeta::Interface { namespace, name, .. } => {
-                imports.insert((namespace.clone(), name.clone(), "interface".into()));
-            }
-            TypeMeta::Enum { namespace, name, .. } => {
-                imports.insert((namespace.clone(), name.clone(), "enum".into()));
-            }
-            TypeMeta::AsyncOperation(inner) | TypeMeta::AsyncActionWithProgress(inner) => {
-                visit_type(inner, class_name, imports);
-            }
-            TypeMeta::AsyncOperationWithProgress(result, progress) => {
-                visit_type(result, class_name, imports);
-                visit_type(progress, class_name, imports);
-            }
-            TypeMeta::Struct { fields, .. } => {
-                for f in fields {
-                    visit_type(&f.typ, class_name, imports);
-                }
-            }
-            TypeMeta::Array(inner) => {
-                visit_type(inner, class_name, imports);
-            }
-            TypeMeta::Parameterized { args, .. } => {
-                for arg in args { visit_type(arg, class_name, imports); }
-            }
-            _ => {}
-        }
+pub(crate) fn collect_type_imports(class: &ClassMeta) -> HashSet<TypeRef> {
+    let mut imports = HashSet::new();
+    for iface in class.all_interfaces() {
+        collect_methods_type_imports(&iface.methods, &class.name, true, &mut imports);
     }
-
-    fn visit_methods(methods: &[MethodMeta], class_name: &str, imports: &mut HashSet<(String, String, String)>) {
-        for m in methods {
-            for p in &m.params {
-                visit_type(&p.typ, class_name, imports);
-            }
-            if let Some(ref rt) = m.return_type {
-                visit_type(rt, class_name, imports);
-            }
-        }
-    }
-
-    if let Some(ref iface) = class.default_interface {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.factory_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.static_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.required_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-
     imports
 }
 
@@ -624,4 +561,220 @@ pub(crate) fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     let first = chars.next().unwrap().to_uppercase().to_string();
     format!("{}{}", first, chars.collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::meta::{MethodMeta, ParamMeta, ParamDirection};
+
+    #[test]
+    fn to_camel_case_basic() {
+        assert_eq!(to_camel_case("GetValue"), "getValue");
+        assert_eq!(to_camel_case("X"), "x");
+        assert_eq!(to_camel_case("already"), "already");
+        assert_eq!(to_camel_case(""), "");
+    }
+
+    #[test]
+    fn capitalize_basic() {
+        assert_eq!(capitalize("hello"), "Hello");
+        assert_eq!(capitalize("H"), "H");
+        assert_eq!(capitalize(""), "");
+        assert_eq!(capitalize("already"), "Already");
+    }
+
+    #[test]
+    fn ts_struct_field_type_mappings() {
+        assert_eq!(ts_struct_field_type(&TypeMeta::Bool), "boolean");
+        assert_eq!(ts_struct_field_type(&TypeMeta::String), "string");
+        assert_eq!(ts_struct_field_type(&TypeMeta::Guid), "string");
+        assert_eq!(ts_struct_field_type(&TypeMeta::I32), "number");
+        assert_eq!(ts_struct_field_type(&TypeMeta::F64), "number");
+        assert_eq!(ts_struct_field_type(&TypeMeta::Struct {
+            namespace: "N".into(), name: "MyStruct".into(), fields: vec![],
+        }), "MyStruct");
+        assert_eq!(ts_struct_field_type(&TypeMeta::Struct {
+            namespace: "N".into(), name: "HResult".into(), fields: vec![],
+        }), "number");
+    }
+
+    #[test]
+    fn struct_field_getter_expressions() {
+        assert_eq!(struct_field_getter(&TypeMeta::Bool, 0), "s.getU8(0) !== 0");
+        assert_eq!(struct_field_getter(&TypeMeta::I32, 2), "s.getI32(2)");
+        assert_eq!(struct_field_getter(&TypeMeta::String, 1), "s.getHstring(1)");
+        assert_eq!(struct_field_getter(&TypeMeta::F64, 3), "s.getF64(3)");
+    }
+
+    #[test]
+    fn struct_field_setter_expressions() {
+        assert_eq!(struct_field_setter(&TypeMeta::Bool, 0, "v"), "s.setU8(0, v ? 1 : 0)");
+        assert_eq!(struct_field_setter(&TypeMeta::I32, 1, "x"), "s.setI32(1, x)");
+        assert_eq!(struct_field_setter(&TypeMeta::String, 2, "s"), "s.setHstring(2, s)");
+    }
+
+    #[test]
+    fn ts_dynwinrt_type_primitives() {
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::Bool), "DynWinRtType.boolType()");
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::I32), "DynWinRtType.i32()");
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::String), "DynWinRtType.hstring()");
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::Guid), "DynWinRtType.guidType()");
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::F64), "DynWinRtType.f64()");
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::Object), "DynWinRtType.object()");
+    }
+
+    #[test]
+    fn ts_dynwinrt_type_async() {
+        assert_eq!(ts_dynwinrt_type(&TypeMeta::AsyncAction), "DynWinRtType.iAsyncAction()");
+        assert_eq!(
+            ts_dynwinrt_type(&TypeMeta::AsyncOperation(Box::new(TypeMeta::String))),
+            "DynWinRtType.iAsyncOperation(DynWinRtType.hstring())"
+        );
+    }
+
+    #[test]
+    fn ts_dynwinrt_type_array() {
+        assert_eq!(
+            ts_dynwinrt_type(&TypeMeta::Array(Box::new(TypeMeta::I32))),
+            "DynWinRtType.arrayType(DynWinRtType.i32())"
+        );
+    }
+
+    #[test]
+    fn ts_dynwinrt_type_struct() {
+        let s = TypeMeta::Struct {
+            namespace: "N".into(),
+            name: "Rect".into(),
+            fields: vec![
+                crate::types::FieldMeta { name: "X".into(), typ: TypeMeta::F32 },
+                crate::types::FieldMeta { name: "Y".into(), typ: TypeMeta::F32 },
+            ],
+        };
+        assert_eq!(
+            ts_dynwinrt_type(&s),
+            "DynWinRtType.structType('N.Rect', [DynWinRtType.f32(), DynWinRtType.f32()])"
+        );
+    }
+
+    #[test]
+    fn build_method_sig_empty() {
+        let m = MethodMeta {
+            name: "DoSomething".into(),
+            vtable_index: 6,
+            params: vec![],
+            return_type: None,
+            is_property_getter: false,
+            is_property_setter: false,
+            is_event_add: false,
+            is_event_remove: false,
+        };
+        assert_eq!(build_method_sig(&m), "new DynWinRtMethodSig()");
+    }
+
+    #[test]
+    fn build_method_sig_with_params_and_return() {
+        let m = MethodMeta {
+            name: "GetValue".into(),
+            vtable_index: 7,
+            params: vec![
+                ParamMeta { name: "key".into(), typ: TypeMeta::String, direction: ParamDirection::In },
+            ],
+            return_type: Some(TypeMeta::I32),
+            is_property_getter: false,
+            is_property_setter: false,
+            is_event_add: false,
+            is_event_remove: false,
+        };
+        let sig = build_method_sig(&m);
+        assert!(sig.contains(".addIn(DynWinRtType.hstring())"));
+        assert!(sig.contains(".addOut(DynWinRtType.i32())"));
+    }
+
+    #[test]
+    fn wrap_arg_types() {
+        assert_eq!(wrap_arg("s", &TypeMeta::String), "DynWinRtValue.hstring(s)");
+        assert_eq!(wrap_arg("b", &TypeMeta::Bool), "DynWinRtValue.boolValue(b)");
+        assert_eq!(wrap_arg("n", &TypeMeta::I32), "DynWinRtValue.i32(n)");
+        assert_eq!(wrap_arg("n", &TypeMeta::I64), "DynWinRtValue.i64(n)");
+        assert_eq!(wrap_arg("f", &TypeMeta::F64), "DynWinRtValue.f64(f)");
+    }
+
+    #[test]
+    fn convert_return_basic() {
+        let known = HashSet::new();
+        let deferred = HashSet::new();
+        assert_eq!(convert_return("r", Some(&TypeMeta::String), false, &known, &deferred), "r.toString()");
+        assert_eq!(convert_return("r", Some(&TypeMeta::I32), false, &known, &deferred), "r.toNumber()");
+        assert_eq!(convert_return("r", Some(&TypeMeta::Bool), false, &known, &deferred), "r.toBool()");
+        assert_eq!(convert_return("r", None, false, &known, &deferred), "r");
+    }
+
+    #[test]
+    fn convert_return_with_known_class() {
+        let mut known = HashSet::new();
+        known.insert("Uri".to_string());
+        let deferred = HashSet::new();
+        let rt = TypeMeta::RuntimeClass {
+            namespace: "Windows.Foundation".into(), name: "Uri".into(), default_iid: "abc".into(),
+        };
+        assert_eq!(convert_return("r", Some(&rt), false, &known, &deferred), "new Uri(r)");
+    }
+
+    #[test]
+    fn get_in_params_filters_correctly() {
+        let m = MethodMeta {
+            name: "Test".into(),
+            vtable_index: 6,
+            params: vec![
+                ParamMeta { name: "a".into(), typ: TypeMeta::I32, direction: ParamDirection::In },
+                ParamMeta { name: "b".into(), typ: TypeMeta::I32, direction: ParamDirection::Out },
+                ParamMeta { name: "c".into(), typ: TypeMeta::Array(Box::new(TypeMeta::U8)), direction: ParamDirection::OutFill },
+            ],
+            return_type: None,
+            is_property_getter: false,
+            is_property_setter: false,
+            is_event_add: false,
+            is_event_remove: false,
+        };
+        let in_params = get_in_params(&m);
+        assert_eq!(in_params.len(), 2); // In + OutFill
+        assert_eq!(in_params[0].name, "a");
+        assert_eq!(in_params[1].name, "c");
+    }
+
+    #[test]
+    fn collect_type_imports_skips_self() {
+        let class = crate::meta::ClassMeta {
+            name: "MyClass".into(),
+            namespace: "N".into(),
+            full_name: "N.MyClass".into(),
+            default_interface: Some(crate::meta::InterfaceMeta {
+                name: "IMyClass".into(),
+                namespace: "N".into(),
+                iid: "abc".into(),
+                methods: vec![MethodMeta {
+                    name: "GetSelf".into(),
+                    vtable_index: 6,
+                    params: vec![],
+                    return_type: Some(TypeMeta::RuntimeClass {
+                        namespace: "N".into(), name: "MyClass".into(), default_iid: "def".into(),
+                    }),
+                    is_property_getter: false,
+                    is_property_setter: false,
+                    is_event_add: false,
+                    is_event_remove: false,
+                }],
+                generic_piid: None,
+                generic_args: vec![],
+            }),
+            required_interfaces: vec![],
+            factory_interfaces: vec![],
+            static_interfaces: vec![],
+            has_default_constructor: false,
+        };
+        let imports = collect_type_imports(&class);
+        // Should not include MyClass itself
+        assert!(!imports.iter().any(|r| r.name == "MyClass"));
+    }
 }

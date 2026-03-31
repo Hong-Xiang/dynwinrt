@@ -6,9 +6,10 @@ const os = require("os");
 
 const args = process.argv.slice(2);
 
-// Parse --lang and --output from args
+// Parse --lang, --output, and --source-map from args
 let lang = null;
 let outputDir = null;
+let sourceMaps = false;
 const exeArgs = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--lang") {
@@ -18,6 +19,8 @@ for (let i = 0; i < args.length; i++) {
     outputDir = args[++i];
     exeArgs.push("--output"); // placeholder, patched below
     exeArgs.push(null);
+  } else if (args[i] === "--source-map") {
+    sourceMaps = true; // consumed by shim, not passed to exe
   } else {
     exeArgs.push(args[i]);
   }
@@ -64,7 +67,7 @@ if (needsCompile && outputDir) {
   }
 
   try {
-    compileDir(tsDir, outputDir, { moduleType });
+    compileDir(tsDir, outputDir, { moduleType, sourceMaps });
     console.log(`Done. Output in ${outputDir}`);
   } finally {
     fs.rmSync(tsDir, { recursive: true, force: true });

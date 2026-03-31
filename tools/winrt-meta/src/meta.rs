@@ -3,7 +3,7 @@ use std::path::Path;
 
 use windows_metadata::{HasAttributes, reader};
 
-use crate::types::{EnumMember, TypeMeta};
+use crate::types::{EnumMember, TypeKind, TypeMeta, TypeRef};
 
 /// Direction of a method parameter at the ABI level.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +69,16 @@ pub struct ClassMeta {
     pub factory_interfaces: Vec<InterfaceMeta>,
     pub static_interfaces: Vec<InterfaceMeta>,
     pub has_default_constructor: bool,
+}
+
+impl ClassMeta {
+    /// Iterate over all interfaces (default, factory, static, required).
+    pub fn all_interfaces(&self) -> impl Iterator<Item = &InterfaceMeta> {
+        self.default_interface.iter()
+            .chain(self.factory_interfaces.iter())
+            .chain(self.static_interfaces.iter())
+            .chain(self.required_interfaces.iter())
+    }
 }
 
 /// List all unique namespaces found in the given winmd files.
@@ -192,35 +202,22 @@ pub fn collect_imports(class: &ClassMeta) -> HashSet<(String, String)> {
         let mut named = Vec::new();
         let mut _param = Vec::new();
         visit_type_refs(typ, &mut named, &mut _param);
-        for (ns, name, _kind) in named {
-            if name != class_name {
-                imports.insert((ns, name));
+        for r in named {
+            if r.name != class_name {
+                imports.insert((r.namespace, r.name));
             }
         }
     }
 
-    fn visit_methods(methods: &[MethodMeta], class_name: &str, imports: &mut HashSet<(String, String)>) {
-        for m in methods {
+    for iface in class.all_interfaces() {
+        for m in &iface.methods {
             for p in &m.params {
-                visit_type(&p.typ, class_name, imports);
+                visit_type(&p.typ, class_name, &mut imports);
             }
             if let Some(ref rt) = m.return_type {
-                visit_type(rt, class_name, imports);
+                visit_type(rt, class_name, &mut imports);
             }
         }
-    }
-
-    if let Some(ref iface) = class.default_interface {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.factory_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.static_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
-    }
-    for iface in &class.required_interfaces {
-        visit_methods(&iface.methods, class_name, &mut imports);
     }
 
     imports
@@ -259,7 +256,7 @@ pub fn resolve_dependencies(
     let mut dep_enums: Vec<TypeMeta> = Vec::new();
 
     // Seed the worklist from initial types
-    let mut worklist: Vec<(String, String, &'static str)> = Vec::new();
+    let mut worklist: Vec<TypeRef> = Vec::new();
     let mut param_worklist: Vec<TypeMeta> = Vec::new();
     collect_all_refs_from_classes(classes, &known, &mut worklist, &mut param_worklist);
     collect_all_refs_from_interfaces(existing_interfaces, &known, &mut worklist, &mut param_worklist);
@@ -274,33 +271,32 @@ pub fn resolve_dependencies(
         let mut new_classes = Vec::new();
         let mut new_interfaces = Vec::new();
 
-        for (ns, name, kind) in &batch {
-            if known.contains(name) { continue; }
-            known.insert(name.clone());
+        for r in &batch {
+            if known.contains(&r.name) { continue; }
+            known.insert(r.name.clone());
 
-            match *kind {
-                "interface" => {
-                    if let Some(iface) = parse_interface(&index, ns, name) {
+            match r.kind {
+                TypeKind::Interface => {
+                    if let Some(iface) = parse_interface(&index, &r.namespace, &r.name) {
                         new_interfaces.push(iface);
                     } else {
-                        eprintln!("warning: interface {}.{} not found in loaded winmd files", ns, name);
+                        eprintln!("warning: interface {}.{} not found in loaded winmd files", r.namespace, r.name);
                     }
                 }
-                "class" => {
-                    if let Some(class) = parse_class_from_index(&index, ns, name) {
+                TypeKind::Class => {
+                    if let Some(class) = parse_class_from_index(&index, &r.namespace, &r.name) {
                         new_classes.push(class);
                     } else {
-                        eprintln!("warning: class {}.{} not found in loaded winmd files", ns, name);
+                        eprintln!("warning: class {}.{} not found in loaded winmd files", r.namespace, r.name);
                     }
                 }
-                "enum" => {
-                    if let Some(def) = index.get(ns, name).next() {
+                TypeKind::Enum => {
+                    if let Some(def) = index.get(&r.namespace, &r.name).next() {
                         dep_enums.push(parse_enum_def(&def));
                     } else {
-                        eprintln!("warning: enum {}.{} not found in loaded winmd files", ns, name);
+                        eprintln!("warning: enum {}.{} not found in loaded winmd files", r.namespace, r.name);
                     }
                 }
-                _ => {}
             }
         }
 
@@ -335,18 +331,18 @@ pub fn resolve_dependencies(
 /// Visit a TypeMeta tree and collect both named type references and parameterized types.
 fn visit_type_refs(
     typ: &TypeMeta,
-    named: &mut Vec<(String, String, &'static str)>,
+    named: &mut Vec<TypeRef>,
     parameterized: &mut Vec<TypeMeta>,
 ) {
     match typ {
         TypeMeta::Interface { namespace, name, .. } => {
-            named.push((namespace.clone(), name.clone(), "interface"));
+            named.push(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Interface });
         }
         TypeMeta::RuntimeClass { namespace, name, .. } => {
-            named.push((namespace.clone(), name.clone(), "class"));
+            named.push(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Class });
         }
         TypeMeta::Enum { namespace, name, .. } => {
-            named.push((namespace.clone(), name.clone(), "enum"));
+            named.push(TypeRef { namespace: namespace.clone(), name: name.clone(), kind: TypeKind::Enum });
         }
         TypeMeta::AsyncOperation(inner) | TypeMeta::AsyncActionWithProgress(inner) => {
             visit_type_refs(inner, named, parameterized);
@@ -377,7 +373,7 @@ fn visit_type_refs(
 fn collect_all_refs_from_methods(
     methods: &[MethodMeta],
     known: &HashSet<String>,
-    named_out: &mut Vec<(String, String, &'static str)>,
+    named_out: &mut Vec<TypeRef>,
     param_out: &mut Vec<TypeMeta>,
 ) {
     let mut named = Vec::new();
@@ -391,7 +387,7 @@ fn collect_all_refs_from_methods(
         }
     }
     for r in named {
-        if !known.contains(&r.1) {
+        if !known.contains(&r.name) {
             named_out.push(r);
         }
     }
@@ -442,24 +438,22 @@ fn type_meta_short_name(typ: &TypeMeta) -> String {
 fn collect_all_refs_from_classes(
     classes: &[ClassMeta],
     known: &HashSet<String>,
-    named_out: &mut Vec<(String, String, &'static str)>,
+    named_out: &mut Vec<TypeRef>,
     param_out: &mut Vec<TypeMeta>,
 ) {
     for c in classes {
-        if let Some(ref iface) = c.default_interface {
+        for iface in c.all_interfaces() {
             collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
         }
-        for iface in &c.factory_interfaces {
-            collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
-        }
-        for iface in &c.static_interfaces {
-            collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
-        }
+        // Required interfaces themselves may need to be resolved
         for iface in &c.required_interfaces {
             if !iface.name.is_empty() && !known.contains(&iface.name) {
-                named_out.push((iface.namespace.clone(), iface.name.clone(), "interface"));
+                named_out.push(TypeRef {
+                    namespace: iface.namespace.clone(),
+                    name: iface.name.clone(),
+                    kind: TypeKind::Interface,
+                });
             }
-            collect_all_refs_from_methods(&iface.methods, known, named_out, param_out);
         }
     }
 }
@@ -468,7 +462,7 @@ fn collect_all_refs_from_classes(
 fn collect_all_refs_from_interfaces(
     interfaces: &[InterfaceMeta],
     known: &HashSet<String>,
-    named_out: &mut Vec<(String, String, &'static str)>,
+    named_out: &mut Vec<TypeRef>,
     param_out: &mut Vec<TypeMeta>,
 ) {
     for i in interfaces {
@@ -532,16 +526,27 @@ pub fn expand_winmd_paths(winmd_paths: &str) -> String {
 
 fn load_index(winmd_paths: &str) -> Option<reader::Index> {
     let paths: Vec<&str> = winmd_paths.split(';').filter(|s| !s.is_empty()).collect();
+    if paths.is_empty() {
+        eprintln!("warning: no winmd paths provided");
+        return None;
+    }
     if paths.len() == 1 {
-        reader::Index::read(paths[0])
+        let result = reader::Index::read(paths[0]);
+        if result.is_none() {
+            eprintln!("warning: failed to read winmd file: {}", paths[0]);
+        }
+        result
     } else {
         let mut files = Vec::new();
         for path in &paths {
             if let Some(f) = reader::File::read(path) {
                 files.push(f);
+            } else {
+                eprintln!("warning: failed to read winmd file: {}", path);
             }
         }
         if files.is_empty() {
+            eprintln!("warning: none of the {} winmd files could be loaded", paths.len());
             None
         } else {
             Some(reader::Index::new(files))
@@ -1012,6 +1017,70 @@ fn resolve_named_type(
 mod tests {
     use super::*;
 
+    #[test]
+    fn make_parameterized_name_single_arg() {
+        let name = make_parameterized_name("IVector`1", &[TypeMeta::String]);
+        assert_eq!(name, "IVector_String");
+    }
+
+    #[test]
+    fn make_parameterized_name_two_args() {
+        let name = make_parameterized_name("IMap`2", &[TypeMeta::String, TypeMeta::Object]);
+        assert_eq!(name, "IMap_String_Object");
+    }
+
+    #[test]
+    fn make_parameterized_name_nested() {
+        let inner = TypeMeta::Parameterized {
+            namespace: "C".into(), name: "IVector`1".into(), piid: "".into(),
+            args: vec![TypeMeta::I32],
+        };
+        let name = make_parameterized_name("IIterable`1", &[inner]);
+        assert_eq!(name, "IIterable_IVector_Int32");
+    }
+
+    #[test]
+    fn class_all_interfaces_iterates_all() {
+        let mk_iface = |n: &str| InterfaceMeta {
+            name: n.into(), namespace: "N".into(), iid: "".into(),
+            methods: vec![], generic_piid: None, generic_args: vec![],
+        };
+        let class = ClassMeta {
+            name: "C".into(), namespace: "N".into(), full_name: "N.C".into(),
+            default_interface: Some(mk_iface("IDef")),
+            factory_interfaces: vec![mk_iface("IFact")],
+            static_interfaces: vec![mk_iface("IStat")],
+            required_interfaces: vec![mk_iface("IReq")],
+            has_default_constructor: false,
+        };
+        let names: Vec<&str> = class.all_interfaces().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["IDef", "IFact", "IStat", "IReq"]);
+    }
+
+    #[test]
+    fn class_all_interfaces_handles_no_default() {
+        let class = ClassMeta {
+            name: "C".into(), namespace: "N".into(), full_name: "N.C".into(),
+            default_interface: None,
+            factory_interfaces: vec![],
+            static_interfaces: vec![],
+            required_interfaces: vec![],
+            has_default_constructor: false,
+        };
+        assert_eq!(class.all_interfaces().count(), 0);
+    }
+
+    #[test]
+    fn expand_winmd_paths_empty() {
+        assert_eq!(expand_winmd_paths(""), "");
+    }
+
+    #[test]
+    fn split_full_name_works() {
+        assert_eq!(split_full_name("Windows.Foundation.Uri"), Some(("Windows.Foundation", "Uri")));
+        assert_eq!(split_full_name("NoNamespace"), None);
+    }
+
     const WINDOWS_WINMD: &str =
         r"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd";
 
@@ -1060,7 +1129,7 @@ mod tests {
 
 #[cfg(test)]
 mod iface_tests {
-    use windows_metadata::{HasAttributes, reader};
+    use windows_metadata::reader;
     const WINDOWS_WINMD: &str =
         r"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd";
 

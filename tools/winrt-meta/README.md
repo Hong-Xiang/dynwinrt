@@ -21,9 +21,12 @@ npx winrt-meta generate [OPTIONS]
 | `--winmd` | No | Path to `.winmd` file(s), separated by `;`. Auto-detects Windows SDK if omitted |
 | `--folder` | No | Directory containing `.winmd` files |
 | `--namespace` | No | Generate only this namespace. If omitted, generates all non-Windows namespaces |
-| `--class` | No | Specific class name (requires `--namespace`) |
+| `--class-name` | No | Class name(s) to generate, comma-separated (requires `--namespace`). E.g. `StorageFile` or `StorageFile,StorageFolder` |
+| `--ref` | No | Additional `.winmd` files for type resolution only (no code generated). Paths separated by `;` |
 | `--lang` | No | Target language: `ts` (default), `js` (ESM), `cjs` (CommonJS) |
 | `--output` | No | Output directory (default: `./generated`) |
+| `--dry-run` | No | Validate metadata and resolve dependencies without writing files |
+| `--source-map` | No | Generate `.map` source map files alongside JS output (only with `--lang js` or `cjs`) |
 
 When `--lang js` or `--lang cjs` is specified, TypeScript is generated internally and compiled to JavaScript via SWC. The intermediate `.ts` files are not written to the output directory.
 
@@ -43,7 +46,16 @@ Generate TypeScript bindings for a specific class:
 ```bash
 npx winrt-meta generate \
   --namespace Windows.Storage \
-  --class StorageFile \
+  --class-name StorageFile \
+  --output ./generated-ts
+```
+
+Generate multiple classes in one pass (shares the winmd index):
+
+```bash
+npx winrt-meta generate \
+  --namespace Windows.Storage \
+  --class-name StorageFile,StorageFolder \
   --output ./generated-ts
 ```
 
@@ -53,6 +65,24 @@ Generate all namespaces from multiple `.winmd` files:
 npx winrt-meta generate \
   --winmd "path/to/Windows.winmd;path/to/Microsoft.WindowsAppSDK.winmd" \
   --output ./generated-ts
+```
+
+Validate metadata without writing files:
+
+```bash
+npx winrt-meta generate \
+  --folder path/to/metadata \
+  --dry-run
+```
+
+Generate JS with source maps for debugging:
+
+```bash
+npx winrt-meta generate \
+  --folder path/to/metadata \
+  --output ./generated-js \
+  --lang js \
+  --source-map
 ```
 
 ## Output
@@ -94,3 +124,13 @@ npm publish
 ```
 
 In CI, this is handled automatically by the build workflow.
+
+## Testing
+
+```bash
+cargo test -p winrt-meta
+```
+
+Tests include:
+- Unit tests for type mapping, dependency resolution, and code generation helpers
+- Snapshot test for `Windows.Foundation.Uri` (regenerate with `cargo run -- generate --namespace Windows.Foundation --class-name Uri --output tests/snapshots/uri`)

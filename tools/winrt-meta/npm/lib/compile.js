@@ -5,11 +5,12 @@ const fs = require("fs");
  * Compile all .ts files in srcDir to .js files in destDir using SWC.
  * @param {string} srcDir - Directory containing .ts files
  * @param {string} destDir - Output directory for .js files
- * @param {{ moduleType?: string }} options
+ * @param {{ moduleType?: string, sourceMaps?: boolean }} options
  */
 function compileDir(srcDir, destDir, options = {}) {
   const swc = require("@swc/core");
   const moduleType = options.moduleType || "es6";
+  const sourceMaps = options.sourceMaps || false;
 
   if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
@@ -28,7 +29,7 @@ function compileDir(srcDir, destDir, options = {}) {
           target: "es2022",
         },
         module: { type: moduleType },
-        sourceMaps: false,
+        sourceMaps,
       });
       // Add .js extension to relative imports (ESM requires it, CJS does not)
       let jsCode = result.code;
@@ -40,6 +41,12 @@ function compileDir(srcDir, destDir, options = {}) {
       }
       const jsName = entry.name.replace(/\.ts$/, ".js");
       const destPath = path.join(destDir, jsName);
+      // Append sourceMappingURL if source map was generated
+      if (sourceMaps && result.map) {
+        const mapName = jsName + ".map";
+        jsCode += `\n//# sourceMappingURL=${mapName}\n`;
+        fs.writeFileSync(path.join(destDir, mapName), result.map);
+      }
       fs.writeFileSync(destPath, jsCode);
       console.log(`Generated ${destPath}`);
     }
