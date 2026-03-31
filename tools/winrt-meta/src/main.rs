@@ -60,6 +60,11 @@ enum Commands {
         #[arg(long, name = "class", value_name = "NAME")]
         class_name: Option<String>,
 
+        /// Additional .winmd files for type resolution only (no code generated).
+        /// Paths separated by ';'. Sibling .winmd files are NOT auto-discovered.
+        #[arg(long = "ref", value_name = "PATH")]
+        ref_winmd: Option<String>,
+
         /// Target language
         #[arg(long, default_value = "ts", value_parser = ["ts"])]
         lang: String,
@@ -79,6 +84,7 @@ fn main() {
             folder,
             namespace,
             class_name,
+            ref_winmd,
             lang: _,
             output,
         } => {
@@ -122,6 +128,18 @@ fn main() {
                 }
             }
 
+            // Collect ref winmd namespaces (for exclusion) and append to winmd_parts
+            let ref_namespaces: HashSet<String> = if let Some(ref r) = ref_winmd {
+                let ref_paths: Vec<&str> = r.split(';').filter(|s| !s.is_empty()).collect();
+                let ref_joined = ref_paths.join(";");
+                let ref_ns = meta::list_namespaces(&ref_joined);
+                // Add ref paths to winmd_parts (loaded for type resolution)
+                winmd_parts.extend(ref_paths.iter().map(|s| s.to_string()));
+                ref_ns.into_iter().collect()
+            } else {
+                HashSet::new()
+            };
+
             let winmd_joined = winmd_parts.join(";");
 
             // Auto-discover sibling .winmd files in the same directories
@@ -162,7 +180,7 @@ fn main() {
                         let all_ns = meta::list_namespaces(&winmd);
                         let filtered: Vec<String> = all_ns
                             .into_iter()
-                            .filter(|ns| !ns.starts_with("Windows."))
+                            .filter(|ns| !ns.starts_with("Windows.") && !ref_namespaces.contains(ns))
                             .collect();
                         if filtered.is_empty() {
                             eprintln!("No non-Windows namespaces found. Use --namespace to specify one.");
