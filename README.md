@@ -128,22 +128,3 @@ The path to the WinAppSDK Bootstrap DLL is retrieved from the `WINAPPSDK_BOOTSTR
 import { initWinappsdk } from 'dynwinrt-js'
 initWinappsdk(1, 8) // Initialize WinAppSDK 1.8
 ```
-
-## Architecture
-
-### Dynamic Call Strategies
-
-dynwinrt selects an optimized call strategy at method build time:
-
-| Strategy | When | Uses libffi? |
-|---|---|---|
-| `Direct0In1Out` | Property getter (0 in, 1 out) | No |
-| `Direct1In1Out` | Factory/method (1 in, 1 out) | No |
-| `Direct1In0Out` | Property setter (1 in, 0 out) | No |
-| `Libffi(Cif)` | General case (2+ params, structs) | Yes (cached Cif) |
-
-### Type System
-
-Three-layer mapping: `TypeKind` (compile-time descriptor) → `AbiValue` (ABI representation) → `WinRTValue` (runtime value container).
-
-Supports: primitives, HString, Object, GUID, structs, arrays, async operations, parameterized generics (`IVector<T>`, `IReference<T>`, etc.).

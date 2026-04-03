@@ -6,10 +6,11 @@ const os = require("os");
 
 const args = process.argv.slice(2);
 
-// Parse --lang, --output, and --source-map from args
+// Parse --lang, --output, --source-map, and --declaration from args
 let lang = null;
 let outputDir = null;
 let sourceMaps = false;
+let declarations = false;
 const exeArgs = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--lang") {
@@ -21,6 +22,8 @@ for (let i = 0; i < args.length; i++) {
     exeArgs.push(null);
   } else if (args[i] === "--source-map") {
     sourceMaps = true; // consumed by shim, not passed to exe
+  } else if (args[i] === "--declaration") {
+    declarations = true; // consumed by shim, not passed to exe
   } else {
     exeArgs.push(args[i]);
   }
@@ -68,8 +71,37 @@ if (needsCompile && outputDir) {
 
   try {
     compileDir(tsDir, outputDir, { moduleType, sourceMaps });
+
+    // Emit .d.ts files from the original .ts sources
+    if (declarations) {
+      emitDeclarations(tsDir, outputDir);
+    }
+
     console.log(`Done. Output in ${outputDir}`);
   } finally {
     fs.rmSync(tsDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Copy .ts files as .d.ts into destDir, rewriting relative .ts imports to .js.
+ */
+function emitDeclarations(srcDir, destDir) {
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = path.join(srcDir, entry.name);
+    if (entry.isDirectory()) {
+      const sub = path.join(destDir, entry.name);
+      if (!fs.existsSync(sub)) fs.mkdirSync(sub, { recursive: true });
+      emitDeclarations(srcPath, sub);
+    } else if (entry.name.endsWith(".ts")) {
+      const dtsName = entry.name.replace(/\.ts$/, ".d.ts");
+      let code = fs.readFileSync(srcPath, "utf-8");
+      // Rewrite './Foo.ts' → './Foo.js' for declaration module resolution
+      code = code.replace(
+        /(from\s+['"])(\.\/[^'"]+?)\.ts(['"])/g,
+        "$1$2.js$3"
+      );
+      fs.writeFileSync(path.join(destDir, dtsName), code);
+    }
   }
 }

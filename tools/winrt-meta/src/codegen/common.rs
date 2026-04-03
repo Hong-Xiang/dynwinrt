@@ -553,7 +553,29 @@ pub(crate) fn to_camel_case(s: &str) -> String {
     }
     let mut chars = s.chars();
     let first = chars.next().unwrap().to_lowercase().to_string();
-    format!("{}{}", first, chars.collect::<String>())
+    let result = format!("{}{}", first, chars.collect::<String>());
+    // Avoid JS reserved words / strict-mode restricted identifiers
+    if is_js_reserved(&result) {
+        format!("{}_", result)
+    } else {
+        result
+    }
+}
+
+fn is_js_reserved(s: &str) -> bool {
+    matches!(s,
+        // Keywords & strict-mode restricted identifiers
+        "arguments" | "eval" | "break" | "case" | "catch" | "class" | "const"
+        | "continue" | "debugger" | "default" | "delete" | "do" | "else"
+        | "enum" | "export" | "extends" | "false" | "finally" | "for"
+        | "function" | "if" | "import" | "in" | "instanceof" | "let"
+        | "new" | "null" | "return" | "super" | "switch" | "this"
+        | "throw" | "true" | "try" | "typeof" | "undefined" | "var"
+        | "void" | "while" | "with" | "yield"
+        // Strict-mode future reserved words
+        | "implements" | "interface" | "package" | "private" | "protected"
+        | "public" | "static"
+    )
 }
 
 pub(crate) fn capitalize(s: &str) -> String {
